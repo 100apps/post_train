@@ -3,6 +3,7 @@
 > 配套代码：[posttrain_demo.py](./posttrain_demo.py) —— 在单文件里用 ~1100 行 PyTorch 手写 **18 种后训练方法**的最小内核（SFT / DPO / IPO / KTO / ORPO / SimPO / RFT / STaR / RLVR / GRPO / Dr.GRPO / RLOO / REINFORCE++ / DAPO / LCPO + RLAIF/CAI/PPO stub），不依赖 trl 等高层库。依赖由 [pyproject.toml](./pyproject.toml) 中的 uv 管理：Linux / Windows 默认拉 PyTorch CUDA 13.2 通道的 GPU 版 torch，macOS 走 PyPI 默认 wheel（自带 mps / cpu），`uv sync` 一行装好。
 >
 > 本文档目标：把"后训练"这件事的**方法分类、技术演进、SOTA 模型实际用了什么**讲清楚，作为速查手册。
+> 
 > 本仓库定位是一个 quick start 的 demo，如果想更深入了解，可以看这本书：[现代强化学习实战指南](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/README.zh.md)
 
 ---
