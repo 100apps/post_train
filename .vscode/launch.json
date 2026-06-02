@@ -1,0 +1,150 @@
+{
+    // VSCode 调试配置：post_train demo
+    // 使用 uv 管理的本地虚拟环境 .venv 中的 Python 解释器
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "PostTrain: 选择方法（交互式）",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/posttrain_demo.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": false,
+            "args": [
+                "--method", "${input:method}",
+                "--steps", "${input:steps}",
+                "--dtype", "${input:dtype}"
+            ],
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "TRANSFORMERS_VERBOSITY": "warning"
+            }
+        },
+        {
+            "name": "PostTrain: SFT (快速烟雾测试)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/posttrain_demo.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": false,
+            "args": ["--method", "sft", "--quick"],
+            "env": { "PYTHONUNBUFFERED": "1" }
+        },
+        {
+            "name": "PostTrain: DPO",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/posttrain_demo.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": false,
+            "args": ["--method", "dpo", "--steps", "20"],
+            "env": { "PYTHONUNBUFFERED": "1" }
+        },
+        {
+            "name": "PostTrain: GRPO",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/posttrain_demo.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": false,
+            "args": ["--method", "grpo", "--steps", "30"],
+            "env": { "PYTHONUNBUFFERED": "1" }
+        },
+        {
+            "name": "PostTrain: 偏好家族 (all-pref)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/posttrain_demo.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": false,
+            "args": ["--method", "all-pref", "--quick"],
+            "env": { "PYTHONUNBUFFERED": "1" }
+        },
+        {
+            "name": "PostTrain: RL 家族 (all-rl)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/posttrain_demo.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": false,
+            "args": ["--method", "all-rl", "--quick"],
+            "env": { "PYTHONUNBUFFERED": "1" }
+        },
+        {
+            "name": "PostTrain: 全跑 (--quick)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/posttrain_demo.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": false,
+            "args": ["--method", "all", "--quick"],
+            "env": { "PYTHONUNBUFFERED": "1" }
+        },
+        {
+            "name": "PostTrain: 通过 uv run 启动（debugpy attach 模式）",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": { "host": "127.0.0.1", "port": 5678 },
+            "justMyCode": false,
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "${workspaceFolder}"
+                }
+            ]
+        },
+        {
+            "name": "PostTrain: 当前打开的文件",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": false,
+            "env": { "PYTHONUNBUFFERED": "1" }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "method",
+            "type": "pickString",
+            "description": "选择要调试的后训练方法",
+            "default": "sft",
+            "options": [
+                "sft", "dpo", "ipo", "kto", "orpo", "simpo",
+                "rft", "star",
+                "rlvr", "grpo", "dr_grpo", "rloo", "reinforce_pp", "dapo", "lcpo",
+                "rlaif", "cai", "ppo",
+                "all", "all-pref", "all-rl", "all-self", "all-stub"
+            ]
+        },
+        {
+            "id": "steps",
+            "type": "promptString",
+            "description": "训练步数（默认 40，--quick 等价 10）",
+            "default": "10"
+        },
+        {
+            "id": "dtype",
+            "type": "pickString",
+            "description": "精度选择",
+            "default": "auto",
+            "options": ["auto", "fp32", "bf16"]
+        }
+    ]
+}

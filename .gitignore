@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# uv / venv
+.venv/
+.python-version
+
+# 训练产物 / 日志
+*.log
+verify_*.log
+runs/
+checkpoints/
+outputs/
+wandb/
+
+# 编辑器（保留 .vscode/ 下我们手写的调试配置；忽略本地用户偏好）
+.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# HuggingFace 模型缓存（如果用户把 HF_HOME 指向本仓库）
+.cache/

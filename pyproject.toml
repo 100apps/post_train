@@ -1,0 +1,26 @@
+[project]
+name = "post-train-demo"
+version = "0.1.0"
+description = "大模型后训练全家桶 Demo —— 单文件 ~1100 行 PyTorch 实现 18 种后训练方法"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "transformers>=4.40",
+    "torch>=2.2",
+]
+
+[dependency-groups]
+dev = ["debugpy>=1.8"]
+
+# Linux / Windows 走 PyTorch CUDA 13.2 官方通道；
+# macOS 没有 CUDA，直接用 PyPI 默认的 torch（自带 mps / cpu 后端）。
+# 用法：直接 `uv sync` 即可。
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu132", marker = "sys_platform != 'darwin'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
