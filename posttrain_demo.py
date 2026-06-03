@@ -255,6 +255,8 @@ def banner(title):
 # ----------------------------------------------------------------------------
 # 任务：教模型用一种【固定的中二风格签名】结尾回答。
 # loss = -logP(理想答案 | prompt)  纯交叉熵
+# 训练数据格式：(prompt, ideal_answer) 监督对。
+# demo：4 条问答，理想答案统一以"——由小刘为您解答 :3"结尾。
 # ============================================================================
 def demo_sft(model_name, steps, lr):
     banner("方法 1：SFT（监督微调）—— 学会模仿一种固定回答格式")
@@ -294,9 +296,11 @@ def demo_sft(model_name, steps, lr):
 
 
 # ============================================================================
-# 方法 2：DPO —— 直接偏好优化（免 reward model、免 RL）
+# 方法 2：DPO —— Direct Preference Optimization（免 reward model、免 RL）
 # ----------------------------------------------------------------------------
 # loss = -logσ( β·[(logπ_c - logπ_ref_c) - (logπ_r - logπ_ref_r)] )
+# 训练数据格式：(prompt, chosen, rejected) 偏好三元组 + 冻结 ref 模型。
+# demo：3 组生活问答，chosen=温暖建设性回答，rejected=冷漠敷衍回答。
 # ============================================================================
 def demo_dpo(model_name, steps, lr, beta=0.1):
     banner("方法 2：DPO（直接偏好优化）—— 用偏好对学'更好'，无需 RM/RL")
@@ -359,6 +363,8 @@ def demo_dpo(model_name, steps, lr, beta=0.1):
 # Azar et al. 2023 指出 DPO 在 σ 饱和后梯度消失易过拟合，IPO 改为平方损失，
 # 把 (Δc - Δr) 拉向 1/(2β)，对极端偏好更鲁棒。
 # loss = ((Δc - Δr) - 1/(2β))²
+# 训练数据格式：(prompt, chosen, rejected) 偏好三元组（同 DPO）。
+# demo：焦虑/简历/跑步 3 组问答，chosen=具体可行建议，rejected=简单否定/敷衍。
 # ============================================================================
 def demo_ipo(model_name, steps, lr, beta=0.1):
     banner("方法 3：IPO（DPO 平方损失变体）—— 防过拟合，目标 Δ=1/(2β)")
@@ -420,6 +426,8 @@ def demo_ipo(model_name, steps, lr, beta=0.1):
 #   label=0 (坏):  loss = 1 - σ(-β·(Δ - z₀))
 #   其中 Δ = logπ - logπ_ref，z₀ = batch 内 Δ 的均值（KL 近似）
 # 适合数据是"哪些回答好/坏"的二分标注，而不是成对偏好。
+# 训练数据格式：(prompt, completion, label∈{1=好,0=坏}) 单点标注。
+# demo：光合作用/保持健康/鼓励的话 3 个 prompt，每个各给 1 条好答案 + 1 条坏答案。
 # ============================================================================
 def demo_kto(model_name, steps, lr, beta=0.1):
     banner("方法 4：KTO（单点偏好优化）—— 不需要成对数据，只要二元标签")
@@ -487,6 +495,8 @@ def demo_kto(model_name, steps, lr, beta=0.1):
 #   loss = SFT(chosen) + λ · -log σ( log_odds(c) - log_odds(r) )
 #   log_odds = log p - log(1-p) ≈ mean_logp - log(1 - exp(mean_logp))
 # 优点：训练显存减半（无 ref），代码也更短。
+# 训练数据格式：(prompt, chosen, rejected) 偏好对（不需 ref 模型）。
+# demo：冷笑话/背单词/失眠 3 组，chosen=具体方法，rejected=甩锅敷衍。
 # ============================================================================
 def demo_orpo(model_name, steps, lr, lambda_=0.5):
     banner("方法 5：ORPO（Odds Ratio）—— 无 ref 模型，SFT + 偏好对比一体化")
@@ -538,6 +548,8 @@ def demo_orpo(model_name, steps, lr, lambda_=0.5):
 # 优势更大），SimPO 用 mean_logp（长度归一化）+ 无 ref，再加 margin γ：
 #   loss = -log σ( β·(mean_lp_c - mean_lp_r) - γ )
 # β 一般大些（如 2.5），γ 是固定 margin（如 1.4）。
+# 训练数据格式：(prompt, chosen, rejected) 偏好对（无 ref，logp 用长度均值）。
+# demo：跑步/阅读/缓压 3 组生活类问答，chosen=具体步骤，rejected=随便糊弄。
 # ============================================================================
 def demo_simpo(model_name, steps, lr, beta=2.5, gamma=1.4):
     banner("方法 6：SimPO（无 ref + 长度归一化）—— 训练最轻量的偏好对齐")
@@ -587,6 +599,8 @@ def demo_simpo(model_name, steps, lr, beta=2.5, gamma=1.4):
 # ----------------------------------------------------------------------------
 # Yuan et al. 2023：在可验证任务上自采样多份答案，只把【正确】答案做 SFT。
 # 是 LLaMA / DeepSeekMath 等模型构建数学推理能力的基石技巧。
+# 训练数据格式：(prompt, 可验证 gold) —— label 由模型自采样 + 验证函数过滤产生。
+# demo：6 道一位数加法（如 3+4），每步自采 8 个候选，留下输出正确数字者做 SFT。
 # ============================================================================
 def demo_rft(model_name, steps, lr, group=8):
     banner("方法 7：RFT（拒绝采样微调）—— 自采样过滤后做 SFT，最朴素的自提升")
@@ -645,6 +659,8 @@ def demo_rft(model_name, steps, lr, group=8):
 # Zelikman 2022 / Gulcehre 2023：把 RFT 套上"外循环 round"——
 #   每轮：自采样 → 过滤正确 → SFT；下一轮用更强的 self 再采样。
 # 这是 DeepSeekMath / Qwen-Math / R1 数据迭代式自提升的雏形。
+# 训练数据格式：(prompt, 可验证 gold) —— 每轮重新自采样并过滤，labels 不断刷新。
+# demo：6 道一位数加法外套 rounds=2 轮 RFT，观察准确率随 round 上升。
 # ============================================================================
 def demo_star(model_name, rounds, steps_per_round, lr, group=8):
     banner(f"方法 8：STaR / ReST —— {rounds} 轮 RFT 自举提升")
@@ -701,6 +717,8 @@ def demo_star(model_name, rounds, steps_per_round, lr, group=8):
 # 算法：REINFORCE with baseline（PPO/GRPO 的最小内核）
 #   loss = -(r - baseline) · logP(自采样答案)
 # 升级点：用 sample_group 一次 batch 采样替代串行 loop。
+# 训练数据格式：(prompt, 可验证 reward 函数 r(text, gold)) —— 无需人工标答案。
+# demo：6 道一位数加法，每步采 4 个候选，正确得 1 错得 0，组均值作 baseline。
 # ============================================================================
 def demo_rlvr(model_name, steps, lr, group=4):
     banner("方法 9：RLVR（可验证奖励 REINFORCE）—— 答案对错即奖励")
@@ -759,6 +777,8 @@ def demo_rlvr(model_name, steps, lr, group=4):
 #   advantage_i = (r_i - mean) / (std + ε)        组内 z-score
 #   loss = -E[ adv · logπ ]  +  β · KL(π ‖ π_ref)
 # ref 来自冷启动 SFT 后的快照（这里用 deepcopy）。
+# 训练数据格式：(prompt, 可验证 reward) + 冻结 ref 模型用作 KL 锚。
+# demo：6 道一位数加法，每 prompt 采 group=4 个回答，组内 z-score 当 advantage。
 # ============================================================================
 def demo_grpo(model_name, steps, lr, group=4, beta_kl=0.02):
     banner("方法 10：GRPO（DeepSeek-R1 同款）—— 组内 z-score advantage + KL-ref")
@@ -827,6 +847,8 @@ def demo_grpo(model_name, steps, lr, group=4, beta_kl=0.02):
 #   advantage = r - mean    （不除 std）
 #   loss = -adv · sum_logp   （不再用 mean_logp 做长度归一化）
 # 在 R1 复现里 Dr. GRPO 通常更稳。
+# 训练数据格式：(prompt, 可验证 reward) —— 与 GRPO 同，只是去掉两处归一化。
+# demo：6 道一位数加法，每 prompt 采 group=4 个，advantage = r - mean。
 # ============================================================================
 def demo_dr_grpo(model_name, steps, lr, group=4, beta_kl=0.0):
     banner("方法 11：Dr. GRPO —— 去掉 std/长度 两处归一化偏置")
@@ -880,6 +902,8 @@ def demo_dr_grpo(model_name, steps, lr, group=4, beta_kl=0.0):
 # 比组均值更精细，且证明在 LLM 偏好/RLHF 上常优于 PPO。
 #   baseline_i = mean_{j≠i}(r_j)
 #   advantage_i = r_i - baseline_i  =  (k/(k-1)) · (r_i - mean)
+# 训练数据格式：(prompt, 可验证 reward) —— 与 GRPO/RLVR 同。
+# demo：6 道一位数加法，每 prompt 采 group=4 个，每条以"其余 3 条均值"做 baseline。
 # ============================================================================
 def demo_rloo(model_name, steps, lr, group=4):
     banner("方法 12：RLOO（Leave-One-Out baseline）")
@@ -933,6 +957,8 @@ def demo_rloo(model_name, steps, lr, group=4):
 # ----------------------------------------------------------------------------
 # Hu 2024：用滑动平均的 global baseline（跨 batch），
 # 再对每步 batch 内 advantage 做 z-score；clip 比 0.2 限制单步偏移。
+# 训练数据格式：(prompt, 可验证 reward) + 跨 batch 维护的 global baseline 标量。
+# demo：6 道一位数加法，每步采 group=4 个，advantage 先减 global_b 再做 z-score。
 # ============================================================================
 def demo_reinforce_pp(model_name, steps, lr, group=4, alpha=0.9):
     banner("方法 13：REINFORCE++（global baseline + adv 标准化）")
@@ -997,6 +1023,8 @@ def demo_reinforce_pp(model_name, steps, lr, group=4, alpha=0.9):
 #   (b) clip-higher：上下截断不对称（如 ε_low=0.2 / ε_high=0.28），允许低概率
 #       高奖励 token 多迈一步（缓解 entropy collapse）。
 # 我们用粗略实现演示思路：用 (lp - lp.detach()).exp() 作为 ratio 代理。
+# 训练数据格式：(prompt, 可验证 reward) —— 与 GRPO 同，但全对/全错的组直接丢弃。
+# demo：6 道一位数加法，每 prompt 采 group=4 个，组内有对有错才更新。
 # ============================================================================
 def demo_dapo(model_name, steps, lr, group=4,
               eps_low=0.2, eps_high=0.28, beta_kl=0.0):
@@ -1064,6 +1092,8 @@ def demo_dapo(model_name, steps, lr, group=4,
 # Aggarwal & Welleck 2025：在长 CoT 时代控制 token 预算。
 # reward = 正确性 - α · max(0, len - target_len) / target_len
 # 演示：要求模型在 ≤ 4 token 内答完加法（不许长串解释）。
+# 训练数据格式：(prompt, 复合 reward = 正确性 - 长度惩罚)。
+# demo：6 道一位数加法，target_len=4 token；超过 4 token 按比例扣分。
 # ============================================================================
 def demo_lcpo(model_name, steps, lr, group=4, target_len=4, alpha=0.5):
     banner(f"方法 15：LCPO —— 在'≤{target_len} token'预算内答对")
@@ -1127,6 +1157,8 @@ def demo_lcpo(model_name, steps, lr, group=4, target_len=4, alpha=0.5):
 # ----------------------------------------------------------------------------
 # 把"强模型/规则"当 judge，自动产偏好对，再 → DPO/RLHF。
 # 这里用一条确定性规则代替强模型 judge，演示数据合成 + DPO 内核复用。
+# 训练数据格式：(prompt, [候选回答])  →  AI judge 打分  →  (prompt, chosen, rejected)。
+# demo：2 个 prompt 各 2 个候选，judge="含句号且长度 10~80 字"得分高，再走 DPO。
 # ============================================================================
 def demo_rlaif_stub(model_name, steps, lr):
     banner("方法 16（stub）：RLAIF —— AI 反馈合成偏好，调用 DPO 内核")
@@ -1196,6 +1228,8 @@ def demo_rlaif_stub(model_name, steps, lr):
 # 给定一条"宪法"（行为准则），让模型对自身回答做 critique → revise，
 # 然后把 revised 拿去做 SFT（或后接 DPO）。这里我们硬编码一个 critique
 # 流程，演示数据合成思路。
+# 训练数据格式：(宪法, prompt, 初稿, critique, revised) → 用 (prompt, revised) 做 SFT。
+# demo：宪法="不鼓励危险行为"，对"如何通宵打游戏"做 critique→revise，再 SFT 修订版。
 # ============================================================================
 def demo_cai_stub(model_name, steps, lr):
     banner("方法 17（stub）：CAI —— 宪法 → critique → revise → SFT")
@@ -1235,6 +1269,8 @@ def demo_cai_stub(model_name, steps, lr):
 # ----------------------------------------------------------------------------
 # 真正的 PPO 需要 actor + critic + GAE，单文件展开 200+ 行后阅读门槛太高。
 # 本 stub 仅打印架构示意，并指向 README 第三章对 PPO/VAPO 的描述。
+# 训练数据格式：(state=prompt, action=回答, reward) + critic 估的 V(state)，配 GAE 算 advantage。
+# demo：本仓库不实现，仅打印 PPO 架构与外部参考实现链接。
 # ============================================================================
 def demo_ppo_stub(model_name, steps, lr):
     banner("方法 18（stub）：PPO / VAPO —— 经典 actor-critic（仅示意）")
