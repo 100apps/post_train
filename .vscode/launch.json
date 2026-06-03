@@ -3,6 +3,18 @@
     // 使用 uv 管理的本地虚拟环境 .venv 中的 Python 解释器
     "version": "0.2.0",
     "configurations": [
+         {
+            "name": "PostTrain: 全跑 (--quick)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/posttrain_demo.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            
+            "justMyCode": false,
+            "args": ["--method", "all", "--quick"],
+            "env": { "PYTHONUNBUFFERED": "1" }
+        },
         {
             "name": "PostTrain: 选择方法（交互式）",
             "type": "debugpy",
@@ -10,7 +22,7 @@
             "program": "${workspaceFolder}/posttrain_demo.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            
             "justMyCode": false,
             "args": [
                 "--method", "${input:method}",
@@ -29,7 +41,7 @@
             "program": "${workspaceFolder}/posttrain_demo.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            
             "justMyCode": false,
             "args": ["--method", "sft", "--quick"],
             "env": { "PYTHONUNBUFFERED": "1" }
@@ -41,7 +53,7 @@
             "program": "${workspaceFolder}/posttrain_demo.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            
             "justMyCode": false,
             "args": ["--method", "dpo", "--steps", "20"],
             "env": { "PYTHONUNBUFFERED": "1" }
@@ -53,7 +65,7 @@
             "program": "${workspaceFolder}/posttrain_demo.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            
             "justMyCode": false,
             "args": ["--method", "grpo", "--steps", "30"],
             "env": { "PYTHONUNBUFFERED": "1" }
@@ -65,7 +77,7 @@
             "program": "${workspaceFolder}/posttrain_demo.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            
             "justMyCode": false,
             "args": ["--method", "all-pref", "--quick"],
             "env": { "PYTHONUNBUFFERED": "1" }
@@ -77,23 +89,12 @@
             "program": "${workspaceFolder}/posttrain_demo.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            
             "justMyCode": false,
             "args": ["--method", "all-rl", "--quick"],
             "env": { "PYTHONUNBUFFERED": "1" }
         },
-        {
-            "name": "PostTrain: 全跑 (--quick)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/posttrain_demo.py",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "justMyCode": false,
-            "args": ["--method", "all", "--quick"],
-            "env": { "PYTHONUNBUFFERED": "1" }
-        },
+       
         {
             "name": "PostTrain: 通过 uv run 启动（debugpy attach 模式）",
             "type": "debugpy",
@@ -114,7 +115,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            
             "justMyCode": false,
             "env": { "PYTHONUNBUFFERED": "1" }
         }

@@ -51,8 +51,13 @@ url 改成 https://download.pytorch.org/whl/cpu 后重跑 uv sync 即可。
 import argparse
 import copy
 import math
+import os
 import re
 import traceback
+
+# 国内访问 huggingface.co 经常超时，默认走 hf-mirror 镜像。
+# 用户已自行设置 HF_ENDPOINT 时则尊重其设置。
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 import torch
 import torch.nn.functional as F
@@ -257,17 +262,17 @@ def demo_sft(model_name, steps, lr):
 
     SYS = "你是一个助手。"
     data = [
-        ("1+1等于几？", "1+1=2。——由喵喵助手为您解答 :3"),
-        ("天空为什么是蓝色的？", "因为大气对蓝光散射更强。——由喵喵助手为您解答 :3"),
-        ("推荐一种水果。", "推荐苹果，富含维生素。——由喵喵助手为您解答 :3"),
-        ("水的沸点是多少？", "标准大气压下是100摄氏度。——由喵喵助手为您解答 :3"),
+        ("1+1等于几？", "1+1=2。——由小刘为您解答 :3"),
+        ("天空为什么是蓝色的？", "因为大气对蓝光散射更强。——由小刘为您解答 :3"),
+        ("推荐一种水果。", "推荐苹果，富含维生素。——由小刘为您解答 :3"),
+        ("水的沸点是多少？", "标准大气压下是100摄氏度。——由小刘为您解答 :3"),
     ]
     test_q = "中国的首都是哪里？"
 
     print("\n--- 训练【前】 ---")
     before = generate(model, tok, test_q, system=SYS)
     print(f"Q: {test_q}\nA: {before}")
-    print(f"含目标签名? {'喵喵助手' in before}")
+    print(f"含目标签名? {'小刘' in before}")
 
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     model.train()
@@ -283,7 +288,7 @@ def demo_sft(model_name, steps, lr):
     print("\n--- 训练【后】 ---")
     after = generate(model, tok, test_q, system=SYS)
     print(f"Q: {test_q}\nA: {after}")
-    print(f"含目标签名? {'喵喵助手' in after}")
+    print(f"含目标签名? {'小刘' in after}")
     print("\n[结论] SFT 让模型模仿出训练数据里的固定签名 —— 这就是'指令/格式对齐'。")
     del model
 
