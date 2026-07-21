@@ -1,6 +1,6 @@
 # 大模型后训练（Post-Training）方法全景
 
-> 配套代码：[posttrain_demo.py](./posttrain_demo.py) —— 在单文件里用 ~1100 行 PyTorch 手写 **18 种后训练方法**的最小内核（SFT / DPO / IPO / KTO / ORPO / SimPO / RFT / STaR / RLVR / GRPO / Dr.GRPO / RLOO / REINFORCE++ / DAPO / LCPO + RLAIF/CAI/PPO stub），不依赖 trl 等高层库。依赖由 [pyproject.toml](./pyproject.toml) 中的 uv 管理：Linux / Windows 默认拉 PyTorch CUDA 13.2 通道的 GPU 版 torch，macOS 走 PyPI 默认 wheel（自带 mps / cpu），`uv sync` 一行装好。
+> 配套代码：[posttrain_demo.py](./posttrain_demo.py) —— 在单文件里用 ~1800 行 PyTorch 手写 **23 种后训练方法**的最小内核（SFT / DPO / IPO / KTO / ORPO / SimPO / RFT / STaR / RLVR / GRPO / Dr.GRPO / RLOO / REINFORCE++ / DAPO / LCPO / **GSPO / CISPO / OPD / SPIN / 熵控RL** + RLAIF/CAI/PPO stub），不依赖 trl 等高层库。依赖由 [pyproject.toml](./pyproject.toml) 中的 uv 管理：Linux / Windows 默认拉 PyTorch CUDA 13.2 通道的 GPU 版 torch，macOS 走 PyPI 默认 wheel（自带 mps / cpu），`uv sync` 一行装好。
 >
 > 本文档目标：把"后训练"这件事的**方法分类、技术演进、SOTA 模型实际用了什么**讲清楚，作为速查手册。
 > 
@@ -33,11 +33,14 @@
 │     ├── 3.1 经典：PPO / REINFORCE / RLOO
 │     ├── 3.2 去 critic 系：GRPO / Dr. GRPO / REINFORCE++ / GVPO
 │     ├── 3.3 长 CoT 稳定性：DAPO / VAPO / RiskPO
-│     └── 3.4 可控推理：LCPO（长度控制） / Logic-RL（规则可验证）
+│     ├── 3.4 可控推理：LCPO（长度控制） / Logic-RL（规则可验证）
+│     ├── 3.5 比率粒度之争 (2025H2)：GSPO（序列级） / CISPO（裁 IS 权重）
+│     └── 3.6 长训稳定性：熵坍塌控制（entropy bonus / clip-higher / SCOPE-RL）
 ├── 4. 自提升 / 蒸馏 (Self-Improve)        —— 信号：模型自身或更强模型生成的伪标
 │     ├── 4.1 拒绝采样微调 RFT / Rejection Sampling FT
-│     ├── 4.2 STaR / ReST / Self-Reward / SPIN
-│     └── 4.3 知识蒸馏 (teacher → student；R1 蒸出 Qwen / Llama 小模)
+│     ├── 4.2 STaR / ReST / Self-Reward / SPIN（自博弈）
+│     ├── 4.3 离线知识蒸馏 (teacher 轨迹 SFT；R1 蒸出 Qwen / Llama 小模)
+│     └── 4.4 在线蒸馏 OPD (2025-26 工业标配)：学生采样 + 教师逐 token 反向 KL
 ├── 5. Agentic Post-Training（2025 新浮现） —— 信号：工具调用成败 / 多步任务完成
 │     ├── 大规模 agentic 数据合成（Kimi K2）
 │     └── 推理与工具调用联合 RL（K2 Thinking / o3 / Claude 4）
@@ -72,6 +75,11 @@
 | **LCPO** | Length Controlled PO (CMU, 2025.03) | 在奖励中加长度约束项 | 采样 / 无 critic | prompt + 目标长度 + verifier | 推理时可指定 token 预算 | 需额外调参 | `{"prompt":"请用 \u2264 200 token 计算 12×17",`<br>`"gold":"204","max_len":200}` |
 | **RFT** | Rejection sampling Fine-Tuning | 采多答案 → 只留对的做 SFT | 离线采样 / 无 ref | 自生成 + 验证后过滤 | 简单粗暴有效 | 无负样本利用 | 输入：`{"prompt":"X+Y=?","gold":7}`<br>过滤后→ SFT：`{"prompt":"3+4=?",`<br>`"response":"先把…再…答案是7。"}` |
 | **STaR / ReST** | Self-Taught Reasoner / ReST | RFT 的迭代版 | 采样 (多轮) | 自生成 + 验证 | 推理能力自举 | 需可验证或可打分任务 | `{"prompt":"鸡兔同笼…脚94只",`<br>`"rationale":"设鸡 x、兔 y…",`<br>`"answer":"鸡23 兔11","iter":2}` |
+| **GSPO** | Group Sequence Policy Optimization (Qwen, 2025.07) | 序列级 IS 比率 $s_i=(\pi_\theta/\pi_{old})^{1/\lvert y\rvert}$ + 序列级裁剪 | 采样 / 无 critic | 可验证 prompt 池 | rollout 复用与 MoE RL 显著更稳；Qwen3 基石 | ε 需精调（原文 3e-4 级） | 同 GRPO 格式 |
+| **CISPO** | Clipped IS-weight PO (MiniMax-M1, 2025.06) | 裁 sg(IS 权重) 而非 token 更新：$-\hat A\cdot sg(\mathrm{clip}(r_t))\cdot\log\pi_\theta$ | 采样 / 无 critic / 无 KL | 可验证 prompt 池 | 反思类低概率 token 梯度不丢；约 2× DAPO 收敛 | 权重上界需调 | 同 GRPO 格式 |
+| **OPD** | On-Policy Distillation (Qwen3 / Thinking Machines, 2025) | 学生采样，逐 token 奖励 = $\log\pi_{teacher}-\log\pi_{student}$（反向 KL） | 学生采样 + 冻结 teacher | 仅 prompt 池 + 教师模型 | on-policy + 稠密监督；算力 ≈ RL 的 1/10 | 教师-学生思维模式需对齐；蒸回 pre-RL 检查点会抹掉学生 RL 增益 | `{"prompt":"…", "teacher":"Qwen3.7"}`（无需标注/verifier） |
+| **SPIN** | Self-Play Fine-Tuning (2024) | DPO 内核；chosen=gold SFT 数据，rejected=旧自己生成，ref=opponent | 每轮采样一次 + opponent | 仅 SFT 数据 | 把 SFT 数据免费升级成偏好训练 | 收敛于数据分布，天花板=数据质量 | `{"prompt":"…","chosen":"gold","rejected":"旧自己的输出"}` |
+| **熵控 RL** | Entropy-aware RL (2025-26) | GRPO 损失 + $-\beta_{ent}H(\pi)$ / clip-higher / 温度调采样 | 同 GRPO | 同 GRPO | 缓解探索坍塌，保 pass@k 持续提升 | β 过大伤收敛 | 同 GRPO 格式 |
 
 > 公式记号：$q$ 问题，$a$ 答案，$c$=chosen，$r$=rejected，$\Delta_x = \log\pi_\theta(x)-\log\pi_{\text{ref}}(x)$，$b$=baseline。
 >
@@ -105,13 +113,19 @@
 2025.04 ── Llama 4 / GPT-4.5：非推理路线，反响完全不如推理型 → "推理是后训练标配"
 2025.04 ── Qwen3：thinking / non-thinking 双模式同模型，一个 token 切换
 2025.05 ── DeepSeek-R1-0528：R1 升级版，AIME 2024 开源 SOTA
+2025.06 ── MiniMax-M1（456B 混合注意力）：提出 CISPO，裁 IS 权重不裁 token 更新
+2025.07 ── Qwen 提出 GSPO：序列级比率+裁剪，Qwen3 RL 基石，解决 MoE RL 不稳
               ↓
 2025.07 ── **Kimi K2**（1T MoE）：首个原生 Agentic 模型；大规模 agentic 数据合成 + 联合 RL
 2025.08 ── **GPT-5**：统一系统，自动在 fast model / thinking model 之间路由；Deliberative Alignment
 2025.09 ── DeepSeek V3.1 / V3.2：稀疏注意力 + 推理成本优化
+2025.10 ── Thinking Machines 博文把 **OPD 在线蒸馏**推向社区：反向 KL 稠密奖励，
+              以 RL 零头算力复现 Qwen3 小模型配方
 2025.11 ── **Kimi K2 Thinking**：原生 4-bit 后训练；工具调用可任意插入推理链
               ↓
-2026.01+ · "探索坤塌 (exploration collapse)" 、 RL post-training scaling law 、
+2026.01+ · "探索坍塌 (entropy/exploration collapse)" 修复（SCOPE-RL 等）、
+              OPD 成为工业后训练"第四原语"（GLM-5 / MiMo / DeepSeek-V4 小模型管线标配）、
+              RL post-training scaling law 、
               过程奖励 PRM 复辟 、 进化策略 (ES) 走入 LLM fine-tuning 等主题涌现
 ```
 
@@ -139,6 +153,11 @@
 | 2025.03 | **Dr. GRPO** | GRPO 里的长度归一化使训出的 CoT 恶性变长；标准差归一化会引入难度偏差 | **去掉 length & std 两个归一化项**，提供无偏估计，模型能训出更短更准的推理 | 不能解决采样多样性下降问题 |
 | 2025.04 | **VAPO** | DAPO 去掉 critic 后，在长 CoT 上估计方差大、训不动 70B+ 模型 | **重新把 critic 加回来**，但用高效 GAE 估计 + 价值预热 + 长度自适应边界控制 | critic 训练复杂；"去 critic"路线反转 |
 | 2025.07 | **Kimi K2 Agentic** | 以前的 RL 都面向单轮推理；Agent 场景（多轮工具调用）没有足够训练数据 | **大规模合成 agentic trajectories** + 联合 RL：同时对推理链 + 工具调用结果进行奖励 | 数据合成成本高；RL 工程踩坑多 |
+| 2025.06 | **CISPO** | PPO/GRPO 的 token 级裁剪会把 "Wait/However" 类低概率反思 token 一次性裁掉，off-policy 复用时它们再无梯度 | **裁 sg(IS 权重) 而非 token 更新**，所有 token 梯度保留，仅有界化权重 | 无 trust region，靠权重上界控方差 |
+| 2025.07 | **GSPO** | token 级重要性比率在 rollout 复用与 MoE 专家漂移下噪声大、训练崩 | **比率与裁剪都提到序列级**（长度几何平均），奖励单位=优化单位 | 序列级裁剪丢样本比例更高（但反而更稳） |
+| 2025.10 | **OPD 在线蒸馏** | 离线蒸馏 off-policy（学生没在自己的错误上学）；RLVR 奖励稀疏且贵 | **学生 on-policy 采样 + 教师逐 token 反向 KL 稠密奖励**，一行改动复用 RL 基建 | 教师≠越强越好，思维模式需与学生对齐 |
+| 2024-26 | **SPIN 自博弈** | 只有 SFT 数据、没有偏好对也没有 verifier 时无法继续提升 | **旧自己的生成当 rejected、gold 当 chosen**，DPO 内核自博弈迭代 | 天花板=SFT 数据分布本身 |
+| 2025-26 | **熵坍塌控制** | GRPO 家族长训后策略熵塌缩：多样性消失、pass@k 饱和 | entropy bonus / clip-higher / 温度调采样 / 高熵分叉 token 加权，**把熵托在探索区间** | 各法超参敏感，尚无统一理论 |
 | 2025.08 | **GPT-5 路由** | 用户不知道什么问题该用 thinking，锁定 thinking 又贵 | **同一模型里同时训练 fast 与 thinking 模式，训一个 router 自动选** | 路由错误会明显劣于全走 thinking |
 | 2025.11 | **Kimi K2 Thinking 4-bit** | thinking 模型推理贵；后量化常损失推理能力 | **在后训练阶段就原生 4-bit 训练（QAT-RL）**，部署不需后量化 | 4-bit RL 数值稳定性调优难 |
 | 2026.01 | **探索坍塌修复类** (MIT/NUS/Yale/NTU 等) | 长期 RL 后模型多样性下降、采样成本恶化、偏离领域能力 | 保留上游多样性的采样策略 + 演化策略 (ES) 代替部分梯度优化 | 理论仍在完善 |
@@ -179,15 +198,17 @@
 | Claude 3.5 / 3.7 (2024-25) | Anthropic | ✅ | ✅ CAI | | ⚪ extended thinking | | 推理模式 |
 | Gemini 2.0 / 2.5 Thinking (2025) | Google | ✅ | ✅ | | ✅ | | thinking 模式 |
 | GPT-4.5 / o3 / o4-mini (2025) | OpenAI | ✅ | ✅ | | ✅ 大规模 RL | | 推理 + 对齐叠加 |
-| Qwen3 (2025.04) | 阿里 | ✅ | | ✅ | ✅ GRPO | ✅ | thinking / non-thinking 双模式同模型，一个 token 切换 |
+| Qwen3 (2025.04) | 阿里 | ✅ | | ✅ | ✅ **GSPO**（后期）＋GRPO | ✅ | thinking / non-thinking 双模式；小尺寸用 **OPD** 从大模型在线蒸馏 |
 | Llama 4 (2025.04) | Meta | ✅ | | ✅ DPO | ⚪ | ✅ | 多模态 MoE；推理能力反馈不如预期 |
 | **DeepSeek-R1-0528 (2025.05)** | 深度求索 | ✅ | | | ✅ GRPO + Dr. GRPO 思路 | ✅ | AIME 2024 开源 SOTA；质量提升不靠加参数 |
 | **Kimi K2 (2025.07)** | 月之暗面 | ✅ | | ✅ | ✅ 联合 RL | ✅ | 1T MoE；首个原生 Agentic 开源模型；大规模 agentic 数据合成 |
 | **GPT-5 (2025.08)** | OpenAI | ✅ | ✅ | | ✅ 大规模 RL | | 统一系统：fast 模型 + thinking 模型 + router；**Deliberative Alignment** |
 | **DeepSeek V3.1 / V3.2 (2025.09)** | 深度求索 | ✅ | | ✅ | ✅ GRPO | ✅ | 稀疏注意力（DSA）；推理成本优化；后训练双模式 |
+| **MiniMax-M1 (2025.06)** | MiniMax | ✅ | | | ✅ **CISPO** | | 456B 混合注意力；CISPO 全程 RL 租卡成本约 $53 万 |
 | Claude 4 / 4.5 (2025) | Anthropic | ✅ | ✅ CAI | | ✅ extended thinking + tool RL | | Spec-driven；Computer Use 工具 RL |
 | Gemini 3 Pro (2025) | Google | ✅ | ✅ | | ✅ | | Deep Think 模式；多模态推理 |
 | **Kimi K2 Thinking (2025.11)** | 月之暗面 | ✅ | | | ✅ 联合 RL | ✅ | **原生 4-bit 后训练 (QAT-RL)**；工具调用可任意插入推理链 |
+| GLM-5 / MiMo / DeepSeek-V4 (2026) | 智谱/小米/深度求索 | ✅ | | ⚪ | ✅ | ✅ | 小模型管线均采用 **OPD 在线蒸馏**（据各家技术报告与论文引用） |
 
 > 注：很多闭源模型（GPT/Claude/Gemini）的具体配方未完整公开，表中信息基于官方系统卡、技术报告与可信二手来源汇总，可能滞后。截止时间 2026.06。
 
@@ -197,10 +218,10 @@
 
 | 框架 | 出品方 | 支持算法 | 后端 | 特色 | 适合场景 |
 |---|---|---|---|---|---|
-| **trl** | HuggingFace | SFT / DPO / IPO / KTO / ORPO / CPO / GRPO / RLOO / Online DPO / PPO / Reward / **Nash MD / XPO** | accelerate + DeepSpeed/FSDP | API 最友好，生态最广；开箱即用 | 中小规模（≤7B）；研究、原型验证 |
+| **trl** | HuggingFace | SFT / DPO / IPO / KTO / ORPO / CPO / GRPO / **GSPO** / RLOO / Online DPO / PPO / Reward / **Nash MD / XPO** | accelerate + DeepSpeed/FSDP | API 最友好，生态最广；开箱即用 | 中小规模（≤7B）；研究、原型验证 |
 | **OpenRLHF** | OpenLLMAI 社区 | PPO / **REINFORCE++** / GRPO / DPO / KTO / Iterative DPO / RLOO / **Async RL** | Ray + vLLM + DeepSpeed/ZeRO-3 | 首个以 Ray 为后端的 RLHF 框架；**70B+ 上可跑；异步 RL 领先** | 70B 以上；需要异步 RL；多节点集群 |
-| **verl** | 字节跳动 Seed | PPO / GRPO / **DAPO** / **VAPO** / RLOO / ReMax / **DrGRPO** / Reinforce++ | Ray + FSDP / Megatron-LM + vLLM/SGLang | **HybridFlow 论文原生**；跑通 405B 级别；企业生产验证 | 工业级后训练；超大模型；需要 SOTA 性能 |
-| **NeMo-Aligner / NeMo-RL** | NVIDIA | SFT / DPO / RLHF-PPO / GRPO / SteerLM / Self-Rewarding | Megatron-Core + TRT-LLM | NVIDIA 全栈；巨型模型优化好 | 全 NV 集群；企业交付 |
+| **verl** | 字节跳动 Seed | PPO / GRPO / **DAPO** / **VAPO** / **GSPO** / **CISPO** / RLOO / ReMax / **DrGRPO** / Reinforce++ | Ray + FSDP / Megatron-LM + vLLM/SGLang | **HybridFlow 论文原生**；跑通 405B 级别；企业生产验证 | 工业级后训练；超大模型；需要 SOTA 性能 |
+| **NeMo-Aligner / NeMo-RL** | NVIDIA | SFT / DPO / RLHF-PPO / GRPO / **CISPO** / SteerLM / Self-Rewarding | Megatron-Core + TRT-LLM | NVIDIA 全栈；巨型模型优化好 | 全 NV 集群；企业交付 |
 | **Axolotl** | OpenAccess AI | SFT / LoRA / DPO / ORPO / KTO / GRPO（通过 trl） | accelerate + DeepSpeed | YAML 配置驱动，零代码；社区超活 | 多数开源微调项目首选；实验快迭代 |
 | **LLaMA-Factory** | 中文社区 | SFT / DPO / KTO / ORPO / SimPO / PPO / GRPO / DAPO | accelerate + DeepSpeed + vLLM | WebUI + 100+ 模型内建模板 | 中文社区入门首选；一边试一边调 |
 | **veRL-light / SimpleRL** | 香港科大等 | GRPO / Reinforce++ | minimal PyTorch | 代码不到 1k 行，教学友好 | 入门、复现 R1 小型实验 |
@@ -235,10 +256,17 @@ SFT 模型
 对齐模型 (Chat 模型)
    │
    │  Stage 3：可验证 RL（仅当目标是推理/Agent）
-   │   - GRPO / DAPO，奖励 = 数学正确性 / 单测通过 / 工具调用成功
+   │   - GSPO / GRPO / DAPO（MoE 或 rollout 复用选 GSPO；长 CoT 提速选 CISPO）
+   │   - 奖励 = 数学正确性 / 单测通过 / 工具调用成功；长训加熵坍塌控制
    │   - 多阶段：cold-start SFT → RL → SFT-on-RL-output → RL again
    ▼
 推理模型 (Reasoning 模型)
+   │
+   │  Stage 4：小模型产线（2025-26 新增标准环节）
+   │   - OPD 在线蒸馏：大推理模型当教师，小模型学生 on-policy 采样，
+   │     逐 token 反向 KL 稠密奖励，算力 ≈ RL 的 1/10
+   ▼
+端侧/低成本部署模型（Qwen3 小尺寸 / GLM-5 / MiMo 同款路线）
 ```
 
 [posttrain_demo.py](./posttrain_demo.py) 把 Stage 1/2/3 的**最小内核**分别用 [demo_sft](./posttrain_demo.py)、[demo_dpo](./posttrain_demo.py)、[demo_rlvr](./posttrain_demo.py) 各一个函数演示了出来。
@@ -256,6 +284,11 @@ SFT 模型
 | 显存极度受限（单卡 24G） | **ORPO / SimPO** | 不需要 ref 模型 |
 | 想从更强模型蒸馏 | **拒绝采样 SFT + DPO** | Llama-3 路线 |
 | 安全/价值观对齐 | **CAI / Spec-driven** | Anthropic 路线 |
+| MoE 模型 / rollout 复用不稳 | **GSPO** | Qwen3 路线，序列级裁剪 |
+| 长 CoT 想提速、反思 token 被裁 | **CISPO** | MiniMax-M1 路线，约 2× DAPO |
+| 大模型能力灌进小模型（产线蒸馏） | **OPD 在线蒸馏** | Qwen3/GLM-5/MiMo 路线，算力 ≈ RL 的 1/10 |
+| 只有 SFT 数据想继续提升 | **SPIN** | 旧自己免费当负样本 |
+| RL 长训 pass@k 饱和 | **熵坍塌控制** | entropy bonus / clip-higher |
 
 ---
 
@@ -286,6 +319,11 @@ SFT 模型
 - **Qwen3 Tech Report** (2025) — Alibaba (arXiv:2505.09388)
 - **DeepSeek-R1-0528** (2025.05) — DeepSeek-AI 官方报告。
 - **Kimi K2** (2025) — Moonshot AI. *Kimi K2: Open Agentic Intelligence* (arXiv:2507.20534)
+- **MiniMax-M1 / CISPO** (2025.06) — MiniMax. *MiniMax-M1: Scaling Test-Time Compute Efficiently with Lightning Attention* (arXiv:2506.13585)
+- **GSPO** (2025.07) — Zheng et al. (Qwen Team). *Group Sequence Policy Optimization* (arXiv:2507.18071)
+- **SPIN** (2024) — Chen et al. *Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models* (arXiv:2401.01335)
+- **On-Policy Distillation** (2025.10) — Kevin Lu / Thinking Machines Lab. <https://thinkingmachines.ai/blog/on-policy-distillation/>（另见 GKD, arXiv:2306.13649；Qwen3 Tech Report 蒸馏章节）
+- **熵坍塌** (2025) — Cui et al. *The Entropy Mechanism of Reinforcement Learning for Reasoning Language Models* (arXiv:2505.22617)；SCOPE-RL (arXiv:2510.08141) 等后续
 
 **2025 H2 – 2026 最新进展**
 - **GPT-5 System Card** (2025.08) — OpenAI. 包含 Deliberative Alignment 、路由机制说明。
@@ -331,12 +369,19 @@ uv run posttrain_demo.py --method sft
 uv run posttrain_demo.py --method dpo --quick
 
 # 分组
+# 2025H2-2026 新增五法
+uv run posttrain_demo.py --method gspo --quick       # Qwen3 同款：序列级比率+裁剪
+uv run posttrain_demo.py --method cispo --quick      # MiniMax-M1 同款：裁 IS 权重
+uv run posttrain_demo.py --method opd --quick        # 在线蒸馏：教师逐 token 反向 KL
+uv run posttrain_demo.py --method spin --quick       # 自博弈：旧自己当负样本
+uv run posttrain_demo.py --method entropy --quick    # 熵坍塌对照实验（双臂）
+
 uv run posttrain_demo.py --method all-pref --quick   # sft/dpo/ipo/kto/orpo/simpo
-uv run posttrain_demo.py --method all-rl   --quick   # rlvr/grpo/dr_grpo/rloo/reinforce_pp/dapo/lcpo
-uv run posttrain_demo.py --method all-self --quick   # rft/star
+uv run posttrain_demo.py --method all-rl   --quick   # rlvr/grpo/.../dapo/lcpo/gspo/cispo/entropy
+uv run posttrain_demo.py --method all-self --quick   # rft/star/opd/spin
 uv run posttrain_demo.py --method all-stub           # rlaif/cai/ppo（stub，秒级）
 
-# 全跑（18 个方法烟雾测试）
+# 全跑（23 个方法烟雾测试）
 uv run posttrain_demo.py --method all --quick
 ```
 

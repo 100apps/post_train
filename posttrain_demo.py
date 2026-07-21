@@ -4,6 +4,7 @@
    SFT / DPO / IPO / KTO / ORPO / SimPO /
    RFT / STaR / RLVR / GRPO / Dr.GRPO /
    RLOO / REINFORCE++ / DAPO / LCPO /
+   GSPO / CISPO / OPD / SPIN / 熵控RL /
    RLAIF* / CAI* / PPO*       （* 为 stub，仅演示思路）
 
  在 Apple Silicon (MPS) / Linux+CUDA / Windows+CUDA / 纯 CPU 上本地可跑，
@@ -35,8 +36,8 @@ url 改成 https://download.pytorch.org/whl/cpu 后重跑 uv sync 即可。
   # 单方法 / 分组 / 全跑
   uv run posttrain_demo.py --method sft         # 单方法
   uv run posttrain_demo.py --method all-pref    # 偏好家族 (sft/dpo/ipo/kto/orpo/simpo)
-  uv run posttrain_demo.py --method all-rl      # 可验证 RL 家族
-  uv run posttrain_demo.py --method all-self    # 自提升 (rft/star)
+  uv run posttrain_demo.py --method all-rl      # 可验证 RL 家族（含 gspo/cispo/entropy）
+  uv run posttrain_demo.py --method all-self    # 自提升/蒸馏 (rft/star/opd/spin)
   uv run posttrain_demo.py --method all-stub    # AI 反馈 / PPO stub
   uv run posttrain_demo.py --method all --quick # 全跑（快速烟雾测试）
 
@@ -162,6 +163,27 @@ def seq_logp_with_lengths(model, tok, prompt_text, answer_text):
     sum_lp = (token_logp * mask).sum()
     mean_lp = sum_lp / ans_len
     return sum_lp, mean_lp, int(ans_len.item())
+
+
+def seq_logp_tokens(model, tok, prompt_text, answer_text, with_entropy=False):
+    """token 级版本：返回 answer 段每个 token 的 log-prob 一维张量（带梯度）。
+    with_entropy=True 时额外返回每 token 的策略熵（CISPO / OPD / 熵控 RL 用）。"""
+    full = prompt_text + answer_text
+    full_ids = tok(full, return_tensors="pt").input_ids.to(DEVICE)
+    prompt_len = tok(prompt_text, return_tensors="pt").input_ids.shape[1]
+
+    out = model(input_ids=full_ids)
+    logits = out.logits[:, :-1, :]
+    labels = full_ids[:, 1:]
+    logp_all = F.log_softmax(logits, dim=-1)
+    token_logp = logp_all.gather(2, labels.unsqueeze(-1)).squeeze(-1)[0]
+
+    start = max(prompt_len - 1, 0)
+    tok_lp = token_logp[start:]
+    if with_entropy:
+        ent = -(logp_all.exp() * logp_all).sum(-1)[0][start:]
+        return tok_lp, ent
+    return tok_lp
 
 
 @torch.no_grad()
@@ -1296,7 +1318,385 @@ PPO 的核心循环（Schulman 2017；OpenAI InstructGPT 2022）：
 
 
 # ============================================================================
-# 18 法演化关系图（本文件中函数定义顺序、METHODS 字典顺序与本图一致）
+# 方法 19：GSPO —— Group Sequence Policy Optimization（Qwen, 2025.07）
+# ----------------------------------------------------------------------------
+# Zheng et al. arXiv:2507.18071，Qwen3 系列 RL 的算法基石。
+# GRPO 的 token 级重要性比率在 rollout 复用（off-policy 小步更新）时噪声大，
+# MoE 上专家路由漂移会让 token 比率彻底失真。GSPO 的修正：
+#   s_i(θ) = ( π_θ(y_i|x) / π_old(y_i|x) )^(1/|y_i|)     ← 序列级、长度几何平均
+#   loss   = -E[ min( s_i·Â_i, clip(s_i, 1-ε, 1+ε)·Â_i ) ]
+# 即"裁剪整条序列而不是单个 token"，奖励单位与优化单位对齐。
+# 训练数据格式：(prompt, 可验证 reward) —— 与 GRPO 同；差异在 rollout 复用
+# 时的重要性比率定义。
+# demo：6 道一位数加法；每次 rollout 后做 2 个 inner epoch 复用样本，
+#       第 2 个 epoch 里 π_θ ≠ π_old，序列级比率 + 裁剪开始生效。
+# ============================================================================
+def demo_gspo(model_name, steps, lr, group=4, eps=0.10, inner_epochs=2):
+    banner("方法 19：GSPO（Qwen3 同款）—— 序列级重要性比率 + 序列级裁剪")
+    model, tok = load(model_name)
+
+    SYS = "你是一个计算器。只输出最终数字，不要解释。"
+    questions = [(3, 4), (7, 2), (5, 5), (9, 6), (8, 1), (2, 7)]
+
+    def reward_of(text, gold):
+        nums = re.findall(r"-?\d+", text)
+        return 1.0 if nums and int(nums[0]) == gold else 0.0
+
+    def eval_acc():
+        c = 0
+        for a, b in questions:
+            out = generate(model, tok, f"{a}+{b}=?", system=SYS, max_new=12)
+            c += reward_of(out, a + b)
+        return c / len(questions)
+
+    print(f"\n--- 训练【前】准确率 = {eval_acc():.0%} ---")
+    opt = torch.optim.AdamW(model.parameters(), lr=lr)
+    print(f"\n--- 训练中（GSPO，ε={eps}，inner_epochs={inner_epochs}，{steps} 步）---")
+    for step in range(steps):
+        a, b = questions[step % len(questions)]
+        gold = a + b
+        prompt = build_prompt(tok, f"{a}+{b}=?", system=SYS)
+        samples = sample_group(model, tok, prompt, group=group, max_new=10)
+        rewards = [reward_of(t, gold) for t in samples]
+        mu = sum(rewards) / len(rewards)
+        var = sum((r - mu) ** 2 for r in rewards) / len(rewards)
+        sigma = math.sqrt(var) + 1e-6
+        if var < 1e-12:
+            continue
+        # π_old：rollout 时刻的序列 logp（冻结快照，不复制整模型只存标量）
+        old_lps = []
+        with torch.no_grad():
+            for txt in samples:
+                s_lp, _, n = seq_logp_with_lengths(model, tok, prompt, txt)
+                old_lps.append((s_lp.item(), max(n, 1)))
+        # inner epoch 复用同一批 rollout：第 1 个 epoch s_i≈1，第 2 个开始偏离
+        for ep in range(inner_epochs):
+            model.train(); opt.zero_grad(); total, n_clip = 0.0, 0
+            for txt, r, (old_lp, n_tok) in zip(samples, rewards, old_lps):
+                adv = (r - mu) / sigma
+                new_lp, _, _ = seq_logp_with_lengths(model, tok, prompt, txt)
+                # 序列级比率：长度几何平均，避免长序列 exp 爆炸
+                s = torch.exp((new_lp - old_lp) / n_tok)
+                s_clip = s.clamp(1 - eps, 1 + eps)
+                if abs(s.item() - s_clip.item()) > 1e-9:
+                    n_clip += 1
+                loss = -torch.min(s * adv, s_clip * adv) / 5.0
+                loss.backward(); total += loss.item()
+            opt.step()
+            if step % max(1, steps // 8) == 0 or step == steps - 1:
+                print(f"  step {step:3d}.ep{ep}  rewards={rewards}  "
+                      f"clipped_seq={n_clip}/{group}  loss={total:.3f}")
+
+    print(f"\n--- 训练【后】准确率 = {eval_acc():.0%} ---")
+    print("\n[结论] GSPO 把重要性比率和裁剪都提到序列级，奖励单位=优化单位，"
+          "rollout 复用与 MoE RL 显著更稳（Qwen3 全系采用）。")
+    del model
+
+
+# ============================================================================
+# 方法 20：CISPO —— Clipped IS-weight Policy Optimization（MiniMax-M1, 2025.06）
+# ----------------------------------------------------------------------------
+# MiniMax arXiv:2506.13585。观察：PPO/GRPO 的 token 级裁剪会把
+# "However / Wait / Recheck" 这类低概率反思 token 一次性裁掉，之后的
+# off-policy 更新中它们再也贡献不了梯度 —— 恰恰是长 CoT 最需要的分叉 token。
+# CISPO 的修正：不裁 token 更新，改裁 IS 权重本身且 stop-gradient：
+#   L = -E[ Â_t · sg( clip(r_t, 1-ε_low, 1+ε_high) ) · log π_θ(o_t) ]
+# 所有 token 的梯度都保留，只是权重被有界化。实测比 DAPO 快约 2×。
+# 训练数据格式：(prompt, 可验证 reward) —— 与 GRPO 同。
+# demo：同加法任务 + rollout 复用；对比 GSPO：CISPO 是 token 级权重裁剪。
+# ============================================================================
+def demo_cispo(model_name, steps, lr, group=4, eps_high=0.30, inner_epochs=2):
+    banner("方法 20：CISPO（MiniMax-M1 同款）—— 裁 IS 权重不裁 token 更新")
+    model, tok = load(model_name)
+
+    SYS = "你是一个计算器。只输出最终数字，不要解释。"
+    questions = [(3, 4), (7, 2), (5, 5), (9, 6), (8, 1), (2, 7)]
+
+    def reward_of(text, gold):
+        nums = re.findall(r"-?\d+", text)
+        return 1.0 if nums and int(nums[0]) == gold else 0.0
+
+    def eval_acc():
+        c = 0
+        for a, b in questions:
+            out = generate(model, tok, f"{a}+{b}=?", system=SYS, max_new=12)
+            c += reward_of(out, a + b)
+        return c / len(questions)
+
+    print(f"\n--- 训练【前】准确率 = {eval_acc():.0%} ---")
+    opt = torch.optim.AdamW(model.parameters(), lr=lr)
+    print(f"\n--- 训练中（CISPO，ε_high={eps_high}，{steps} 步）---")
+    for step in range(steps):
+        a, b = questions[step % len(questions)]
+        gold = a + b
+        prompt = build_prompt(tok, f"{a}+{b}=?", system=SYS)
+        samples = sample_group(model, tok, prompt, group=group, max_new=10)
+        rewards = [reward_of(t, gold) for t in samples]
+        mu = sum(rewards) / len(rewards)
+        var = sum((r - mu) ** 2 for r in rewards) / len(rewards)
+        sigma = math.sqrt(var) + 1e-6
+        if var < 1e-12:
+            continue
+        # π_old 的 token 级 logp 快照
+        old_tok_lps = []
+        with torch.no_grad():
+            for txt in samples:
+                old_tok_lps.append(seq_logp_tokens(model, tok, prompt, txt).detach())
+        for ep in range(inner_epochs):
+            model.train(); opt.zero_grad(); total = 0.0
+            for txt, r, old_lp in zip(samples, rewards, old_tok_lps):
+                adv = (r - mu) / sigma
+                new_lp = seq_logp_tokens(model, tok, prompt, txt)
+                L = min(new_lp.shape[0], old_lp.shape[0])
+                ratio = torch.exp(new_lp[:L] - old_lp[:L])
+                # 只设上界（MiniMax 论文实际未设下界），且 stop-gradient
+                w = ratio.clamp(max=1 + eps_high).detach()
+                # 关键差异：梯度流经每个 token 的 log π_θ，无 token 被丢弃
+                loss = -(adv * w * new_lp[:L]).sum() / (5.0 * L)
+                loss.backward(); total += loss.item()
+            opt.step()
+            if step % max(1, steps // 8) == 0 or step == steps - 1:
+                print(f"  step {step:3d}.ep{ep}  rewards={rewards}  loss={total:.3f}")
+
+    print(f"\n--- 训练【后】准确率 = {eval_acc():.0%} ---")
+    print("\n[结论] CISPO 裁 sg(IS 权重) 而非 token 更新，反思类低概率 token 的"
+          "梯度不再被截断丢弃 —— 长 CoT 收敛更快（MiniMax-M1 报告约 2× DAPO）。")
+    del model
+
+
+# ============================================================================
+# 方法 21：OPD —— On-Policy Distillation 在线蒸馏（Qwen3 / Thinking Machines, 2025）
+# ----------------------------------------------------------------------------
+# Qwen3 Tech Report + Thinking Machines Lab 博文（Kevin Lu, 2025.10）。
+# 2026 年已成为工业界后训练"第四原语"（SFT / RLVR / 偏好对齐之外）：
+# Qwen3、GLM-5、MiMo、DeepSeek-V4 的小模型管线均采用。
+# 思路 = on-policy 的探索 + distillation 的稠密监督：
+#   1) 学生自己采样 rollout（on-policy，学的是自己会犯的错）
+#   2) 教师对学生轨迹逐 token 打分：per-token reward = -reverse-KL
+#      ≈ log π_teacher(o_t) - log π_student(o_t)
+#   3) 策略梯度：loss = -Σ_t sg(adv_t)·log π_student(o_t)
+# 对比：SFT/离线蒸馏是 off-policy（学教师轨迹）；RLVR 是稀疏序列级 0/1 奖励；
+# OPD 是 on-policy + 稠密 token 级奖励，算力约为 RL 的 1/10。
+# 训练数据格式：仅需 prompt 池 + 一个教师模型（无需人工标注、无需 verifier）。
+# demo：先把教师（同底座的副本）SFT 出固定签名风格，再让学生 OPD 逼近教师；
+#       评测 = 学生输出带签名的比例。生产中教师=大模型（如 Qwen3.7 蒸 122B-A10B）。
+# ============================================================================
+def demo_opd(model_name, steps, lr, teacher_sft_steps=12):
+    banner("方法 21：OPD 在线蒸馏 —— 学生采样 + 教师逐 token 反向 KL 稠密奖励")
+    SYS = "你是一个助手。"
+    SIGNATURE = "——由小刘为您解答 :3"
+    sft_data = [
+        ("天空为什么是蓝的？", f"因为瑞利散射让蓝光更容易被散射。{SIGNATURE}"),
+        ("怎么煮溏心蛋？",     f"水开后煮六分半，捞出过冰水。{SIGNATURE}"),
+        ("一年有几个季度？",   f"一年有四个季度。{SIGNATURE}"),
+        ("猫为什么打呼噜？",   f"通常表示放松，也可能自我安抚。{SIGNATURE}"),
+    ]
+    eval_qs = [q for q, _ in sft_data]
+
+    # ---- 第一步：造一个"教师"= 同底座副本 SFT 出目标行为 ----
+    teacher, tok = load(model_name)
+    print(f"\n--- 先把教师 SFT 出签名风格（{teacher_sft_steps} 步）---")
+    opt_t = torch.optim.AdamW(teacher.parameters(), lr=lr * 3)
+    teacher.train()
+    for step in range(teacher_sft_steps):
+        q, ans = sft_data[step % len(sft_data)]
+        prompt = build_prompt(tok, q, system=SYS)
+        loss = -seq_logp(teacher, tok, prompt, ans) / 20.0
+        opt_t.zero_grad(); loss.backward(); opt_t.step()
+    teacher.eval()
+    for p in teacher.parameters():
+        p.requires_grad_(False)
+
+    # ---- 第二步：学生 = 干净的底座，OPD 逼近教师 ----
+    student = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype=DTYPE).to(DEVICE)
+
+    def sig_rate(m):
+        hit = 0
+        for q in eval_qs:
+            out = generate(m, tok, q, system=SYS, max_new=48)
+            hit += (SIGNATURE[:6] in out)   # 匹配签名前缀即可
+        return hit / len(eval_qs)
+
+    print(f"\n教师签名率 = {sig_rate(teacher):.0%}（蒸馏目标）")
+    print(f"学生签名率（训练前）= {sig_rate(student):.0%}")
+
+    opt_s = torch.optim.AdamW(student.parameters(), lr=lr * 3)
+    print(f"\n--- 训练中（OPD，{steps} 步）---")
+    for step in range(steps):
+        q, _ = sft_data[step % len(sft_data)]
+        prompt = build_prompt(tok, q, system=SYS)
+        # 1) 学生 on-policy 采样自己的轨迹
+        rollout = sample_group(student, tok, prompt, group=1, max_new=32)[0]
+        if not rollout.strip():
+            continue
+        student.train(); opt_s.zero_grad()
+        # 2) 逐 token 稠密奖励 = -reverse-KL 的采样估计
+        lp_s = seq_logp_tokens(student, tok, prompt, rollout)
+        with torch.no_grad():
+            lp_t = seq_logp_tokens(teacher, tok, prompt, rollout)
+        L = min(lp_s.shape[0], lp_t.shape[0])
+        adv = (lp_t[:L] - lp_s[:L]).detach()          # 教师更喜欢的 token → 正优势
+        # 3) 策略梯度（等价于最小化逐 token reverse-KL；即"KL 正则 RL 的一行改动"）
+        loss = -(adv * lp_s[:L]).sum() / (5.0 * L)
+        loss.backward(); opt_s.step()
+        if step % max(1, steps // 8) == 0 or step == steps - 1:
+            print(f"  step {step:3d}  mean_reverse_KL={-adv.mean().item():.3f}  "
+                  f"loss={loss.item():.3f}")
+
+    print(f"\n学生签名率（训练后）= {sig_rate(student):.0%}")
+    print("\n[结论] OPD = on-policy 采样 + 教师 token 级反向 KL 稠密奖励，"
+          "以 RL 零头的算力把教师能力灌进学生；已是 2026 工业后训练标准原语。")
+    del teacher, student
+
+
+# ============================================================================
+# 方法 22：SPIN —— Self-Play Fine-Tuning（Chen et al. 2024, arXiv:2401.01335）
+# ----------------------------------------------------------------------------
+# 只有 SFT 数据（无偏好对、无 verifier）时怎么继续提升？SPIN 的自博弈构造：
+#   chosen   = 人类 SFT 数据（gold）
+#   rejected = 上一轮模型自己生成的回答（opponent 快照）
+#   loss     = DPO 内核，ref = opponent
+# 直觉：让当前模型学会"区分人类数据与旧自己的输出"，等价于把旧自己当负样本。
+# 迭代到模型分布 ≈ 数据分布时收敛（理论上是 SFT 数据上的分布匹配博弈）。
+# 训练数据格式：(prompt, gold_answer) —— 与 SFT 完全一致，负样本自动生成。
+# demo：签名风格任务，2 轮自博弈；观察签名命中率随迭代上升。
+# ============================================================================
+def demo_spin(model_name, steps, lr, rounds=2, beta=0.1):
+    banner("方法 22：SPIN 自博弈微调 —— 旧自己 = rejected，gold = chosen")
+    model, tok = load(model_name)
+    SYS = "你是一个助手。"
+    SIGNATURE = "——由小刘为您解答 :3"
+    gold_data = [
+        ("天空为什么是蓝的？", f"因为瑞利散射让蓝光更容易被散射。{SIGNATURE}"),
+        ("怎么煮溏心蛋？",     f"水开后煮六分半，捞出过冰水。{SIGNATURE}"),
+        ("一年有几个季度？",   f"一年有四个季度。{SIGNATURE}"),
+        ("猫为什么打呼噜？",   f"通常表示放松，也可能自我安抚。{SIGNATURE}"),
+    ]
+
+    def sig_rate(m):
+        hit = 0
+        for q, _ in gold_data:
+            out = generate(m, tok, q, system=SYS, max_new=48)
+            hit += (SIGNATURE[:6] in out)
+        return hit / len(gold_data)
+
+    print(f"\n--- 训练【前】签名率 = {sig_rate(model):.0%} ---")
+    steps_per_round = max(4, steps // rounds)
+    for rd in range(rounds):
+        # opponent = 本轮开始时的模型快照（同时充当 DPO 的 ref）
+        opponent = copy.deepcopy(model).to(DEVICE)
+        for p in opponent.parameters():
+            p.requires_grad_(False)
+        opponent.eval()
+        # 用 opponent 生成 rejected
+        pairs = []
+        for q, gold in gold_data:
+            prompt = build_prompt(tok, q, system=SYS)
+            rej = sample_group(opponent, tok, prompt, group=1, max_new=32)[0]
+            pairs.append((prompt, gold, rej if rej.strip() else "（空）"))
+        print(f"\n--- 第 {rd + 1}/{rounds} 轮自博弈（{steps_per_round} 步）---")
+        print(f"  示例 rejected（旧自己）: {pairs[0][2][:40]!r}")
+        opt = torch.optim.AdamW(model.parameters(), lr=lr)
+        model.train()
+        for step in range(steps_per_round):
+            prompt, ch, rj = pairs[step % len(pairs)]
+            lp_c = seq_logp(model, tok, prompt, ch)
+            lp_r = seq_logp(model, tok, prompt, rj)
+            with torch.no_grad():
+                lpref_c = seq_logp(opponent, tok, prompt, ch)
+                lpref_r = seq_logp(opponent, tok, prompt, rj)
+            loss = pref_loss("dpo", lp_c=lp_c, lp_r=lp_r,
+                             lpref_c=lpref_c, lpref_r=lpref_r, beta=beta)
+            opt.zero_grad(); loss.backward(); opt.step()
+            if step % max(1, steps_per_round // 4) == 0:
+                print(f"  step {step:3d}  loss = {loss.item():.3f}")
+        del opponent
+        print(f"  第 {rd + 1} 轮后签名率 = {sig_rate(model):.0%}")
+
+    print("\n[结论] SPIN 用'旧自己'免费造负样本，把 SFT 数据升级成偏好训练；"
+          "无需人工偏好对，也无需 verifier。")
+    del model
+
+
+# ============================================================================
+# 方法 23：熵控 RL —— 探索坍塌（Entropy Collapse）的诊断与缓解（2025-2026 热点）
+# ----------------------------------------------------------------------------
+# GRPO 家族长训后的通病：策略熵快速塌缩 → 采样多样性消失 → pass@k 不再提升
+# （Cui et al. 2025 "The Entropy Mechanism of RL for Reasoning LMs" 等）。
+# 主流缓解手段（本 demo 实现 †，其余见 README）：
+#   † entropy bonus     —— 损失里加 -β_ent·H(π)，直接托底熵
+#   † 温度调采样        —— rollout 用 T>1 保持探索
+#   - clip-higher       —— DAPO 的非对称裁剪（见方法 14）
+#   - 高熵分叉 token 加权 / SCOPE-RL 正样本正则 等
+# 训练数据格式：与 GRPO 相同；差异只在损失附加项与采样温度。
+# demo：同一加法任务上跑两段短训练：vanilla GRPO vs +熵红利，
+#       逐步打印平均 token 熵，直观对比熵坍塌速度。
+# ============================================================================
+def demo_entropy_ctrl(model_name, steps, lr, group=4, beta_ent=0.05, temp=1.2):
+    banner("方法 23：熵控 RL —— 对比 vanilla GRPO 与 +entropy bonus 的熵轨迹")
+    SYS = "你是一个计算器。只输出最终数字，不要解释。"
+    questions = [(3, 4), (7, 2), (5, 5), (9, 6), (8, 1), (2, 7)]
+
+    def reward_of(text, gold):
+        nums = re.findall(r"-?\d+", text)
+        return 1.0 if nums and int(nums[0]) == gold else 0.0
+
+    def run_arm(tag, use_bonus):
+        model, tok = load(model_name)
+        opt = torch.optim.AdamW(model.parameters(), lr=lr)
+        ent_track = []
+        print(f"\n--- [{tag}] {steps} 步 ---")
+        for step in range(steps):
+            a, b = questions[step % len(questions)]
+            gold = a + b
+            prompt = build_prompt(tok, f"{a}+{b}=?", system=SYS)
+            t = temp if use_bonus else 1.0     # 熵控臂同时用温度调采样
+            samples = sample_group(model, tok, prompt, group=group,
+                                   max_new=10, temperature=t)
+            rewards = [reward_of(s, gold) for s in samples]
+            mu = sum(rewards) / len(rewards)
+            var = sum((r - mu) ** 2 for r in rewards) / len(rewards)
+            sigma = math.sqrt(var) + 1e-6
+            model.train(); opt.zero_grad()
+            step_ent = []
+            for txt, r in zip(samples, rewards):
+                lp, ent = seq_logp_tokens(model, tok, prompt, txt,
+                                          with_entropy=True)
+                step_ent.append(ent.mean().item())
+                if var < 1e-12:
+                    continue
+                adv = (r - mu) / sigma
+                loss = -adv * lp.sum() / 5.0
+                if use_bonus:
+                    loss = loss - beta_ent * ent.mean()   # 熵红利：托住探索
+                loss.backward()
+            if var >= 1e-12:
+                opt.step()
+            mean_ent = sum(step_ent) / max(len(step_ent), 1)
+            ent_track.append(mean_ent)
+            if step % max(1, steps // 8) == 0 or step == steps - 1:
+                print(f"  step {step:3d}  rewards={rewards}  "
+                      f"mean_token_entropy={mean_ent:.3f}")
+        del model
+        return ent_track
+
+    ent_vanilla = run_arm("vanilla GRPO（对照臂）", use_bonus=False)
+    ent_bonus = run_arm(f"GRPO + entropy bonus β={beta_ent} + T={temp}",
+                        use_bonus=True)
+
+    print("\n--- 熵轨迹对比（首步 → 末步）---")
+    print(f"  vanilla     : {ent_vanilla[0]:.3f} → {ent_vanilla[-1]:.3f}"
+          f"  (Δ={ent_vanilla[-1] - ent_vanilla[0]:+.3f})")
+    print(f"  +ent bonus  : {ent_bonus[0]:.3f} → {ent_bonus[-1]:.3f}"
+          f"  (Δ={ent_bonus[-1] - ent_bonus[0]:+.3f})")
+    print("\n[结论] 熵是 RL 后训练的'探索余额'：vanilla GRPO 熵下降更快"
+          "（demo 步数少，效应有限；长训中会坍塌到 pass@k 饱和），"
+          "entropy bonus / 温度调采样 / clip-higher 是三类主流托底手段。")
+
+
+# ============================================================================
+# 23 法演化关系图（本文件中函数定义顺序、METHODS 字典顺序与本图一致）
 # ----------------------------------------------------------------------------
 #
 #                    SFT (1) ─── 监督模仿，所有对齐的起点
@@ -1327,7 +1727,10 @@ PPO 的核心循环（Schulman 2017；OpenAI InstructGPT 2022）：
 #         ├── + Leave-One-Out 基线 ──→ RLOO        (12)
 #         ├── + global baseline ────→ REINFORCE++ (13)
 #         ├── + 动态采样 + clip-higher → DAPO        (14)
-#         └── + 长度惩罚 reward ────→ LCPO        (15)
+#         ├── + 长度惩罚 reward ────→ LCPO        (15)
+#         ├── 比率/裁剪提到序列级 ──→ GSPO        (19)  ← Qwen3 同款
+#         ├── 裁 sg(IS 权重) 保 token 梯度 → CISPO  (20)  ← MiniMax-M1 同款
+#         └── + 熵红利/温度调采样 ──→ 熵控 RL      (23)  ← 修复探索坍塌
 #
 # ─── ④ 数据合成补丁（与上述任一对齐方法配合）───
 #
@@ -1338,11 +1741,24 @@ PPO 的核心循环（Schulman 2017；OpenAI InstructGPT 2022）：
 #
 #   PPO   (18, stub) — actor + critic + GAE，指向 OpenRLHF / verl / trl
 #
+# ─── ⑥ 蒸馏 / 自博弈（2025.07 新增家族，编号接在 stub 之后）───
+#
+#   RFT/STaR 的近亲，但监督信号来自"另一个模型"而非 verifier：
+#   OPD  (21) — 学生 on-policy 采样 + 教师逐 token 反向 KL 稠密奖励
+#               = SFT(稠密) × RL(on-policy) 的交集；Qwen3/GLM-5/MiMo/
+#               DeepSeek-V4 小模型管线标配，算力 ≈ RL 的 1/10
+#   SPIN (22) — 自博弈：chosen=gold SFT 数据，rejected=旧自己的生成，
+#               DPO 内核 + opponent 当 ref；把 SFT 数据白嫖成偏好数据
+#
 # 阅读建议：按编号顺序看，每个方法注释卡片均含「训练数据格式 / demo」小节。
+# 编号 19-23 为 2025H2-2026 迭代新增，物理位置在 stub (16-18) 之后。
 # 主线：
 #   • 偏好家族以 DPO 为根，后续变体在「损失形式 / 是否需 ref / 是否成对 / 长度归一」上作文章
-#   • 在线 RL 家族以 RLVR 为起点，GRPO 是关键跳变（取代 critic），之后是 GRPO 偏置的各种补丁
-#   • 自提升 / RLAIF / CAI 本质是「怎么造出训练数据」，与上述损失函数正交
+#   • 在线 RL 家族以 RLVR 为起点，GRPO 是关键跳变（取代 critic）；
+#     2025H2 起分两支演进：比率粒度之争（GSPO 序列级 vs CISPO 权重裁剪）
+#     与长训稳定性（熵坍塌控制）
+#   • 自提升 / 蒸馏 / RLAIF / CAI 本质是「怎么造出训练信号」，与损失函数正交；
+#     OPD 是其中 2026 年工业界渗透率最高的一支
 # ============================================================================
 
 
@@ -1365,6 +1781,11 @@ METHODS = {
     "reinforce_pp": lambda m, s, lr, args: demo_reinforce_pp(m, max(s, 30), lr * 5),
     "dapo":         lambda m, s, lr, args: demo_dapo(m, max(s, 30), lr * 5),
     "lcpo":         lambda m, s, lr, args: demo_lcpo(m, max(s, 30), lr * 5),
+    "gspo":         lambda m, s, lr, args: demo_gspo(m, max(s, 30), lr * 5),
+    "cispo":        lambda m, s, lr, args: demo_cispo(m, max(s, 30), lr * 5),
+    "opd":          lambda m, s, lr, args: demo_opd(m, max(s, 20), lr),
+    "spin":         lambda m, s, lr, args: demo_spin(m, s, lr),
+    "entropy":      lambda m, s, lr, args: demo_entropy_ctrl(m, max(10, s // 2), lr * 5),
     "rlaif":        lambda m, s, lr, args: demo_rlaif_stub(m, max(8, s // 2), lr),
     "cai":          lambda m, s, lr, args: demo_cai_stub(m, max(8, s // 2), lr),
     "ppo":          lambda m, s, lr, args: demo_ppo_stub(m, s, lr),
@@ -1373,15 +1794,16 @@ METHODS = {
 GROUPS = {
     "all":      list(METHODS.keys()),
     "all-pref": ["sft", "dpo", "ipo", "kto", "orpo", "simpo"],
-    "all-rl":   ["rlvr", "grpo", "dr_grpo", "rloo", "reinforce_pp", "dapo", "lcpo"],
-    "all-self": ["rft", "star"],
+    "all-rl":   ["rlvr", "grpo", "dr_grpo", "rloo", "reinforce_pp", "dapo", "lcpo",
+                 "gspo", "cispo", "entropy"],
+    "all-self": ["rft", "star", "opd", "spin"],
     "all-stub": ["rlaif", "cai", "ppo"],
 }
 
 
 def main():
     global DTYPE
-    p = argparse.ArgumentParser(description="大模型后训练全家桶 Demo（单文件 18 法）")
+    p = argparse.ArgumentParser(description="大模型后训练全家桶 Demo（单文件 23 法）")
     p.add_argument("--method", default="all",
                    choices=list(METHODS.keys()) + list(GROUPS.keys()))
     p.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
@@ -1414,7 +1836,7 @@ def main():
     banner("全部完成 ✅  汇总")
     for name, ok in results:
         print(f"  {name:<14} {'OK' if ok else '跳过/异常'}")
-    print("\n对照每节的【训练前 vs 训练后】，可看清 18 种后训练范式的本质差异。")
+    print("\n对照每节的【训练前 vs 训练后】，可看清 23 种后训练范式的本质差异。")
 
 
 if __name__ == "__main__":
