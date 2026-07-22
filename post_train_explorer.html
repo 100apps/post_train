@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>后训练进化论 · 从一个问题开始</title>
+<link rel="preconnect" href="https://fonts.googleapis.cn">
+<link href="https://fonts.googleapis.cn/css2?family=Space+Grotesk:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<style>
+:root{
+  --bg:#12181c;
+  --bg-alt:#0e1316;
+  --panel:#1a2226;
+  --panel-2:#202a2f;
+  --code-bg:#0c1013;
+  --line:#2a353a;
+  --ink:#e9e4d6;
+  --ink-dim:#93a3a6;
+  --ink-faint:#5f7276;
+  --amber:#dda75d;
+  --amber-dim:#8a6f45;
+  --red:#d9695c;
+  --red-dim:#7a4038;
+  --green:#7fae86;
+  --green-dim:#3f5c44;
+  --blue:#6fa3c0;
+  --blue-dim:#3a5566;
+  --font-display:'Space Grotesk',sans-serif;
+  --font-body:'Source Serif 4',serif;
+  --font-mono:'JetBrains Mono',monospace;
+  --maxw:760px;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}*{animation-duration:0.01ms !important;transition-duration:0.01ms !important;}}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-body);
+  font-size:17px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--amber-dim);color:var(--ink);}
+a{color:var(--blue);}
+h1,h2,h3,h4{font-family:var(--font-display);font-weight:600;margin:0;letter-spacing:-0.01em;}
+button{font-family:var(--font-display);cursor:pointer;}
+:focus-visible{outline:2px solid var(--amber);outline-offset:3px;}
+
+/* ---------- progress bar ---------- */
+.progress-track{position:fixed;top:0;left:0;right:0;height:3px;background:var(--bg-alt);z-index:200;}
+.progress-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--amber-dim),var(--amber));transition:width .4s ease;}
+
+/* ---------- top bar ---------- */
+.topbar{position:fixed;top:3px;left:0;right:0;z-index:190;display:flex;align-items:center;justify-content:space-between;
+  padding:10px 20px;background:rgba(18,24,28,.88);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+  font-family:var(--font-mono);font-size:12.5px;color:var(--ink-dim);}
+.topbar .brand{color:var(--amber);font-weight:600;letter-spacing:.02em;}
+.topbar .stat{display:flex;gap:16px;align-items:center;}
+.topbar .stat b{color:var(--ink);}
+.mapbtn{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 12px;font-size:12px;
+  font-family:var(--font-mono);display:flex;align-items:center;gap:6px;}
+.mapbtn:hover{border-color:var(--amber-dim);}
+
+/* ---------- hero ---------- */
+.hero{max-width:var(--maxw);margin:0 auto;padding:96px 24px 32px;}
+.eyebrow{font-family:var(--font-mono);font-size:12.5px;letter-spacing:.14em;color:var(--amber);text-transform:uppercase;
+  display:flex;align-items:center;gap:10px;margin-bottom:18px;}
+.eyebrow::before{content:'';width:22px;height:1px;background:var(--amber-dim);}
+.hero h1{font-size:clamp(30px,5vw,44px);line-height:1.18;color:var(--ink);}
+.hero h1 em{font-style:normal;color:var(--amber);}
+.hero .lede{margin-top:18px;font-size:18px;color:var(--ink-dim);max-width:56ch;}
+.hero .lede b{color:var(--ink);font-weight:600;}
+
+/* how-to box */
+.howto{max-width:var(--maxw);margin:28px auto 0;padding:20px 22px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;font-size:15px;color:var(--ink-dim);}
+.howto h4{font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);margin-bottom:10px;}
+.howto .legend{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:var(--font-mono);font-size:12.5px;}
+.howto .legend span{display:flex;align-items:center;gap:7px;}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0;}
+.dot.red{background:var(--red);}
+.dot.green{background:var(--green);}
+.dot.blue{background:var(--blue);}
+.dot.amber{background:var(--amber);}
+
+/* ---------- overview map (svg) ---------- */
+.overview{max-width:var(--maxw);margin:36px auto 0;padding:0 24px;}
+.overview-inner{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px 22px 18px;}
+.overview h4{font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:14px;}
+.ov-branch{cursor:pointer;transition:opacity .2s;}
+.ov-branch:hover{opacity:.75;}
+.ov-branch text{font-family:'JetBrains Mono',monospace;}
+
+/* ---------- lineage section header ---------- */
+.lineage-head{max-width:var(--maxw);margin:64px auto 0;padding:0 24px;}
+.lineage-head .tag{font-family:var(--font-mono);font-size:12px;color:var(--bg);background:var(--amber);display:inline-block;
+  padding:3px 10px;border-radius:4px;font-weight:600;letter-spacing:.03em;}
+.lineage-head.pref .tag{background:var(--blue);}
+.lineage-head.self .tag{background:var(--green);}
+.lineage-head.rl .tag{background:var(--red);}
+.lineage-head h2{margin-top:14px;font-size:26px;}
+.lineage-head p{margin-top:10px;color:var(--ink-dim);font-size:15.5px;max-width:60ch;}
+
+/* ---------- fork / summary connector cards ---------- */
+.connector{max-width:var(--maxw);margin:40px auto;padding:24px 26px;background:var(--panel-2);border:1px dashed var(--line);
+  border-radius:10px;}
+.connector h3{font-size:19px;color:var(--ink);margin-bottom:10px;}
+.connector p{color:var(--ink-dim);font-size:15.5px;margin:8px 0;}
+.branch-choices{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;}
+.branch-btn{font-family:var(--font-mono);font-size:13px;background:var(--panel);border:1px solid var(--line);color:var(--ink);
+  padding:10px 14px;border-radius:8px;text-align:left;flex:1 1 200px;}
+.branch-btn:hover{border-color:var(--amber-dim);}
+.branch-btn .bt-name{color:var(--amber);font-weight:600;display:block;margin-bottom:3px;}
+.branch-btn .bt-desc{color:var(--ink-dim);font-size:12px;}
+
+/* ---------- issue card ---------- */
+.card-wrap{max-width:var(--maxw);margin:22px auto;padding:0 24px;scroll-margin-top:70px;}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  transition:border-color .3s ease;}
+.card.resolved{border-color:var(--green-dim);}
+.card.current-view{box-shadow:0 0 0 1px var(--amber-dim);}
+
+.issue-top{display:flex;align-items:flex-start;gap:14px;padding:20px 22px;cursor:pointer;user-select:none;}
+.issue-num{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--bg);background:var(--red);
+  min-width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:background .3s ease;}
+.card.resolved .issue-num{background:var(--green);}
+.issue-status{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.09em;color:var(--red);text-transform:uppercase;
+  transition:color .3s ease;}
+.card.resolved .issue-status{color:var(--green);}
+.issue-toptext{flex:1;}
+.issue-problem{color:var(--ink);font-size:15.5px;margin-top:4px;line-height:1.55;}
+.issue-problem b{color:var(--red);font-weight:600;}
+.card.resolved .issue-problem{color:var(--ink-dim);}
+.reveal-btn{font-family:var(--font-mono);font-size:12px;color:var(--amber);background:none;border:1px solid var(--amber-dim);
+  border-radius:7px;padding:8px 12px;white-space:nowrap;flex-shrink:0;margin-top:2px;}
+.reveal-btn:hover{background:var(--amber-dim);color:var(--bg);}
+.card.resolved .reveal-btn{opacity:0;pointer-events:none;}
+
+.issue-body{max-height:0;opacity:0;overflow:hidden;transition:max-height .5s ease,opacity .4s ease,padding .4s ease;}
+.card.resolved .issue-body{max-height:6000px;opacity:1;}
+.issue-body-inner{padding:0 22px 24px;border-top:1px solid var(--line);margin-top:2px;}
+
+.meta-row{display:flex;flex-wrap:wrap;gap:8px 18px;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-faint);
+  padding-top:16px;margin-bottom:6px;}
+.meta-row span b{color:var(--ink-dim);}
+.method-name{font-size:22px;font-family:var(--font-display);color:var(--ink);margin:6px 0 2px;}
+.method-full{color:var(--ink-dim);font-size:14px;margin-bottom:16px;}
+
+.block{margin-top:18px;}
+.block-label{font-family:var(--font-mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-faint);
+  margin-bottom:8px;display:flex;align-items:center;gap:7px;}
+.block-label.idea{color:var(--green);}
+.block-label.analogy{color:var(--blue);}
+.block-label.formula{color:var(--blue);}
+.block-label.data{color:var(--ink-faint);}
+.block-label.limit{color:var(--red);}
+.block p{margin:0;font-size:15.5px;color:var(--ink);}
+.analogy-box{background:var(--panel-2);border-left:3px solid var(--blue-dim);padding:12px 16px;border-radius:0 8px 8px 0;
+  font-size:14.5px;color:var(--ink-dim);font-style:italic;}
+.formula-box{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:18px 16px;overflow-x:auto;
+  color:var(--ink);}
+.data-box{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-family:var(--font-mono);
+  font-size:12.5px;color:var(--ink-dim);overflow-x:auto;white-space:pre;}
+.limit-box{background:rgba(217,105,92,.07);border:1px solid var(--red-dim);border-radius:8px;padding:14px 16px;}
+.limit-box p{color:var(--ink);}
+
+.code-toggle{font-family:var(--font-mono);font-size:12px;color:var(--ink-dim);background:var(--code-bg);
+  border:1px solid var(--line);border-radius:7px;padding:8px 12px;display:flex;align-items:center;gap:8px;width:100%;
+  justify-content:space-between;}
+.code-toggle:hover{color:var(--ink);}
+.code-toggle .chev{transition:transform .25s;}
+.code-toggle.open .chev{transform:rotate(90deg);}
+.code-wrap{max-height:0;overflow:hidden;transition:max-height .4s ease;}
+.code-wrap.open{max-height:900px;}
+pre.codeblock{margin:8px 0 0;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:16px;
+  overflow-x:auto;font-family:var(--font-mono);font-size:12.8px;line-height:1.65;}
+pre.codeblock code{font-family:inherit;background:none;}
+.hljs-keyword,.hljs-built_in{color:var(--amber);}
+.hljs-string{color:var(--green);}
+.hljs-comment{color:var(--ink-faint);font-style:italic;}
+.hljs-number{color:var(--blue);}
+.hljs-title.function_{color:var(--blue);}
+.hljs-params{color:var(--ink-dim);}
+.hljs-literal{color:var(--red);}
+
+.next-strip{margin-top:22px;padding-top:18px;border-top:1px dashed var(--line);}
+.next-strip .nx-label{font-family:var(--font-mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--red);
+  margin-bottom:10px;display:block;}
+.next-pills{display:flex;flex-wrap:wrap;gap:8px;}
+.next-pill{font-family:var(--font-mono);font-size:12.5px;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);
+  padding:8px 13px;border-radius:20px;display:inline-flex;align-items:center;gap:6px;}
+.next-pill:hover{border-color:var(--amber);color:var(--amber);}
+.next-pill::after{content:'→';color:var(--ink-faint);}
+
+.leaf-note{margin-top:22px;padding-top:16px;border-top:1px dashed var(--line);font-family:var(--font-mono);font-size:12px;
+  color:var(--ink-faint);}
+
+/* patch-type card slight variant */
+.card.patch{border-style:dashed;}
+.card.patch .issue-num{background:var(--blue);}
+.card.patch.resolved .issue-num{background:var(--blue);}
+.card.patch .issue-status{color:var(--blue);}
+.card.patch.resolved .issue-status{color:var(--blue);}
+
+/* ---------- side map nav (desktop) ---------- */
+.mapnav{position:fixed;top:70px;right:22px;width:200px;max-height:calc(100vh - 100px);overflow-y:auto;
+  font-family:var(--font-mono);font-size:12px;z-index:150;padding-right:4px;}
+.mapnav::-webkit-scrollbar{width:5px;}
+.mapnav::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+.mapnav .grp-title{color:var(--ink-faint);letter-spacing:.06em;text-transform:uppercase;font-size:10.5px;margin:16px 0 6px;}
+.mapnav .grp-title:first-child{margin-top:0;}
+.map-item{display:flex;align-items:center;gap:8px;padding:5px 0;color:var(--ink-dim);border-radius:4px;cursor:pointer;
+  transition:color .15s;}
+.map-item:hover{color:var(--ink);}
+.map-item.child{padding-left:16px;font-size:11.3px;}
+.map-item .m-dot{width:7px;height:7px;border-radius:50%;background:var(--line);flex-shrink:0;transition:background .2s;}
+.map-item.resolved .m-dot{background:var(--green);}
+.map-item.active{color:var(--amber);}
+.map-item.active .m-dot{background:var(--amber);box-shadow:0 0 0 3px rgba(221,167,93,.18);}
+
+@media (max-width:1180px){
+  .mapnav{display:none;}
+}
+.mapnav.mobile-open{display:block;position:fixed;top:0;right:0;left:0;bottom:0;width:auto;max-height:none;
+  background:rgba(12,16,19,.97);padding:80px 30px 40px;z-index:250;}
+.mapnav.mobile-open .map-item{font-size:15px;padding:9px 0;}
+.mapnav.mobile-open .map-item.child{padding-left:20px;font-size:13px;}
+.map-close{position:fixed;top:16px;right:20px;z-index:260;background:var(--panel);border:1px solid var(--line);
+  color:var(--ink);border-radius:6px;padding:8px 14px;font-family:var(--font-mono);font-size:12px;display:none;}
+.map-close.show{display:block;}
+
+/* ---------- closing summary ---------- */
+.summary{max-width:var(--maxw);margin:70px auto 40px;padding:32px 26px;background:var(--panel);border:1px solid var(--amber-dim);
+  border-radius:12px;}
+.summary h3{font-size:22px;color:var(--amber);margin-bottom:14px;}
+.summary p{color:var(--ink-dim);font-size:15.5px;margin:10px 0;}
+.summary p b{color:var(--ink);}
+.summary ul{margin:14px 0;padding-left:20px;color:var(--ink-dim);font-size:15px;}
+.summary ul li{margin:6px 0;}
+.summary ul li b{color:var(--ink);}
+.back-top{display:inline-flex;align-items:center;gap:8px;margin-top:18px;font-family:var(--font-mono);font-size:12.5px;
+  color:var(--amber);text-decoration:none;border:1px solid var(--amber-dim);padding:9px 15px;border-radius:8px;}
+.back-top:hover{background:var(--amber-dim);color:var(--bg);}
+
+.foot-note{max-width:var(--maxw);margin:0 auto 60px;padding:0 24px;color:var(--ink-faint);font-size:12.5px;
+  font-family:var(--font-mono);text-align:center;}
+.foot-note a{color:var(--ink-dim);}
+
+@media (max-width:640px){
+  body{font-size:16px;}
+  .hero{padding-top:80px;}
+  .hero h1{font-size:28px;}
+  .issue-top{padding:16px 16px;flex-wrap:wrap;}
+  .issue-body-inner{padding:0 16px 20px;}
+  .card-wrap,.connector,.lineage-head,.summary,.overview,.hero,.howto{padding-left:16px;padding-right:16px;}
+}
+</style>
+</head>
+<body>
+
+<div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+<div class="topbar">
+  <span class="brand">POST-TRAINING · CHANGELOG</span>
+  <div class="stat">
+    <span>已理解 <b id="statCount">0</b>/23</span>
+    <button class="mapbtn" id="mapToggle">☰ 地图</button>
+  </div>
+</div>
+
+<button class="map-close" id="mapClose">✕ 关闭地图</button>
+<nav class="mapnav" id="mapNav"></nav>
+
+<header class="hero">
+  <div class="eyebrow">Issue #0 · 起点问题</div>
+  <h1>模型是怎么<em>学会讲道理</em>的？</h1>
+  <p class="lede">
+    这是一份用<b>问题驱动</b>的方式讲解后训练（Post-Training）的交互课。23 种方法，
+    没有一种是凭空发明的——每一种都是对<b>上一种方法局限</b>的修复，修复完又带来新的局限，
+    像一部真实的技术 changelog。跟着"问题 → 解法 → 遗留问题"往下点，你会看清整条演进脉络。
+  </p>
+</header>
+
+<div class="howto">
+  <h4>怎么读这页</h4>
+  <p>
+    每张卡片就是一个 <b style="color:var(--red)">issue</b>：先读红色的"问题"，
+    再点"揭示解法"看这个方法怎么解决它——公式、代码、训练数据长什么样，都会展开。
+    卡片底部的红色"遗留问题"就是它没解决的部分，点一下会跳到解决这个新问题的下一个方法。
+    公式看不懂也没关系，每张卡片都配了一行"类比"，用大白话讲清楚核心思路。
+  </p>
+  <div class="legend">
+    <span><span class="dot red"></span>问题 / 局限</span>
+    <span><span class="dot green"></span>已解决 / 方法本身</span>
+    <span><span class="dot blue"></span>公式 / 类比</span>
+    <span><span class="dot amber"></span>关键数字 / 名称</span>
+  </div>
+</div>
+
+<div class="overview">
+  <div class="overview-inner">
+    <h4>全局地图 — 一个问题分出的三条演进主线</h4>
+    <svg viewBox="0 0 680 250" style="width:100%;height:auto;" id="ovSvg">
+      <!-- trunk -->
+      <line x1="340" y1="6" x2="340" y2="70" stroke="#3a464b" stroke-width="2"/>
+      <circle cx="340" cy="6" r="5" fill="#dda75d"/>
+      <text x="352" y="11" fill="#93a3a6" font-size="11">Issue #0 起点问题</text>
+      <rect x="292" y="70" width="96" height="30" rx="6" fill="#202a2f" stroke="#dda75d"/>
+      <text x="340" y="90" fill="#dda75d" font-size="12" text-anchor="middle" font-weight="600">SFT</text>
+      <!-- fan lines -->
+      <line x1="340" y1="100" x2="120" y2="150" stroke="#3a464b" stroke-width="2"/>
+      <line x1="340" y1="100" x2="340" y2="150" stroke="#3a464b" stroke-width="2"/>
+      <line x1="340" y1="100" x2="560" y2="150" stroke="#3a464b" stroke-width="2"/>
+      <!-- branch A pref -->
+      <g class="ov-branch" data-goto="rlhf_ppo">
+        <rect x="40" y="150" width="160" height="70" rx="8" fill="#1a2226" stroke="#6fa3c0"/>
+        <text x="120" y="174" fill="#6fa3c0" font-size="12" text-anchor="middle" font-weight="600">① 偏好对齐</text>
+        <text x="120" y="192" fill="#8a97a0" font-size="10" text-anchor="middle">RLHF→DPO→IPO/KTO</text>
+        <text x="120" y="206" fill="#8a97a0" font-size="10" text-anchor="middle">/ORPO/SimPO</text>
+      </g>
+      <!-- branch B self -->
+      <g class="ov-branch" data-goto="rft">
+        <rect x="260" y="150" width="160" height="70" rx="8" fill="#1a2226" stroke="#7fae86"/>
+        <text x="340" y="174" fill="#7fae86" font-size="12" text-anchor="middle" font-weight="600">② 自我提升/蒸馏</text>
+        <text x="340" y="192" fill="#8a97a0" font-size="10" text-anchor="middle">RFT→STaR→SPIN</text>
+        <text x="340" y="206" fill="#8a97a0" font-size="10" text-anchor="middle">/OPD</text>
+      </g>
+      <!-- branch C rl -->
+      <g class="ov-branch" data-goto="rlvr">
+        <rect x="480" y="150" width="160" height="70" rx="8" fill="#1a2226" stroke="#d9695c"/>
+        <text x="560" y="174" fill="#d9695c" font-size="12" text-anchor="middle" font-weight="600">③ 推理·可验证RL</text>
+        <text x="560" y="192" fill="#8a97a0" font-size="10" text-anchor="middle">RLVR→GRPO→DAPO</text>
+        <text x="560" y="206" fill="#8a97a0" font-size="10" text-anchor="middle">→GSPO/CISPO/熵控</text>
+      </g>
+      <text x="340" y="240" fill="#5f7276" font-size="10.5" text-anchor="middle" font-family="monospace">点击任一分支跳转 · 或直接向下滚动阅读</text>
+    </svg>
+  </div>
+</div>
+
+<main id="main"></main>
+
+<script id="katex-js" src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+
+<script>
+// ============================================================================
+// 数据：把 posttrain_demo.py 里 23 种方法，改写成"问题驱动"的教学卡片
+// 每个节点 = 一张 issue 卡片；problem 是它继承的痛点，limitation 是它留下的
+// 新痛点（→ 指向 next 数组里的下一批节点）
+// ============================================================================
+const NODES = [
+
+{id:'p0', kind:'root', num:'00', badge:'起点问题', name:'预训练模型只会"接话"',
+ full:'The Pretraining Problem', year:'', org:'',
+ problem:'GPT 这类基座模型，训练目标只有一个：看到前面的字，预测下一个字最可能是什么。给它「今天天气」，它可能续写「真好，适合出门」——这只是统计规律，不代表它"听懂了你在提问"。',
+ idea:'把一个问题丢给刚预训练完、还没做后训练的基座模型，它常见的反应是：接着往下编、答非所问、格式混乱，甚至在没人拦着的情况下说出不安全的内容——因为它从没被专门教过"该怎么当一个称职的助手"。',
+ analogy:'就像一个博览群书、什么都读过的人，你问他一个问题，他却开始自顾自地"接龙"联想，而不是回答你——他有知识，但没学过"对话礼仪"。',
+ dataFormat:null, formula:null, code:null,
+ limitation:'需要一种方法，专门教会模型"这是一个指令，请照着回答"——这就是后训练要解决的第一个问题。',
+ next:['sft']},
+
+{id:'sft', kind:'method', num:'01', name:'SFT', full:'Supervised Fine-Tuning · 监督微调',
+ year:'2022 起 · InstructGPT 开山', org:'通用做法',
+ problem:'预训练模型接龙接得很好，但<b>不听指令、格式混乱</b>——它不知道"这是一个问题，该给出回答"。',
+ idea:'找几千条人工写好的「问题 → 理想答案」示例，用最朴素的方式——交叉熵损失——逼着模型下次遇到类似问题时，更倾向于模仿这种回答的写法和语气。',
+ analogy:'教小孩说话不是先讲语法书，而是让他反复听"正确说法"、跟着学，模仿多了自然就会了——SFT 就是给模型一堆"范文"，让它照着抄。',
+ formula:'\\mathcal{L}_{SFT} = -\\log P_\\theta(a \\mid q)',
+ code:`for step in range(steps):
+    q, a = data[step % len(data)]        # (问题, 人工写的标准答案)
+    prompt = build_prompt(tok, q, system=SYS)
+    # 只有一个目标：提升"标准答案"在模型眼里的概率
+    loss = -seq_logp(model, tok, prompt, a) / 20.0
+    opt.zero_grad(); loss.backward(); opt.step()`,
+ dataFormat:'{"prompt": "把这句话翻译成英文：今天天气真好。",\n "response": "The weather is really nice today."}',
+ limitation:'SFT 只会"模仿表面"——它没法告诉模型「这个回答比那个好在哪」，因为标注数据里从来没有"两个候选谁更好"这种比较信息。人类真正在意的"有帮助、有礼貌、安全"这些偏好，SFT 学不到。',
+ next:['fork1']},
+
+{id:'fork1', kind:'fork',
+ title:'同一个限制，逼出了两条不同的研究路线',
+ body:'"SFT 学不到偏序"这个限制，被两批人用完全不同的方式攻克，后来还衍生出第三条线：',
+ branches:[
+   {name:'① 偏好对齐', desc:'直接告诉模型"哪个回答更好"（RLHF → DPO → …）', to:'rlhf_ppo'},
+   {name:'② 自我提升/蒸馏', desc:'让模型自己尝试、用"对不对"自我提升（RFT → STaR → …）', to:'rft'},
+   {name:'③ 推理·可验证RL', desc:'2024 年 o1 出现后，专为"推理"设计的大规模 RL（RLVR → GRPO → …）', to:'rlvr'},
+ ]},
+
+/* =========================== 主线 ① 偏好对齐 =========================== */
+
+{id:'rlhf_ppo', kind:'method', num:'02', name:'RLHF (PPO)', full:'Reinforcement Learning from Human Feedback',
+ year:'2022 · InstructGPT', org:'OpenAI', lineage:'pref',
+ problem:'SFT 学不到"哪个更好"的偏序信息。而且人类很难写出"标准答案该怎么写才最好"，但人类<b>很容易做二选一判断</b>：这个回答比那个好。',
+ idea:'分两步走。第一步，收集大量「问题 + 两个候选回答 + 人类选的更好那个」，训练一个独立的"打分模型"（Reward Model），让它学会预测人类会打几分。第二步，用强化学习（PPO 算法）让主模型去"讨好"这个打分模型——生成的回答分数越高越好，同时不能离原模型太远（KL 惩罚防止跑偏）。',
+ analogy:'像是请一个评委（RM）代替人类实时打分，主模型是个不断根据评委反馈调整表演的演员，但被一根绳子（KL 惩罚）拴住，不能表演得太夸张走样。',
+ formula:'\\text{先训 RM:}\\ \\max\\ \\mathbb{E}[\\log\\sigma(r_\\phi(q,y_c)-r_\\phi(q,y_r))]\\\\[6pt]\\text{再 PPO:}\\ \\max_\\theta\\ \\mathbb{E}[r_\\phi(q,y)-\\beta\\cdot KL(\\pi_\\theta\\|\\pi_{ref})]',
+ code:`# 完整 PPO 需要 4 个模型同时常驻显存
+actor  = load(model_name)          # 要训练的策略
+critic = load(model_name)          # 价值函数 V(s)，另训一个头
+reward_model = load_rm(...)        # 独立训好的打分模型
+ref    = freeze(copy(actor))       # KL 锚点，防止训飞
+
+for step in steps:
+    y = actor.generate(prompt)                  # 1) 采样
+    r = reward_model.score(prompt, y)            # 2) 打分
+    adv = gae(r, critic.value(prompt, y))         # 3) critic 估计优势(GAE)
+    ratio = actor.logp(y) - actor_old.logp(y)     # 4) 重要性比率
+    loss = -min(ratio*adv, clip(ratio,1-e,1+e)*adv) + beta*kl(actor, ref)`,
+ dataFormat:'训RM: {"prompt":"推荐一本书","chosen":"《人类简史》…","rejected":"自己找"}\nPPO阶段只需: {"prompt":"推荐一本书"}',
+ limitation:'需要同时维护 <b>4 个模型</b>（策略+ref+critic+RM），显存开销巨大；PPO 超参极其敏感，复现困难；RM 还可能被"过度优化"欺骗（reward hacking）。',
+ next:['dpo']},
+
+{id:'dpo', kind:'method', num:'03', name:'DPO', full:'Direct Preference Optimization',
+ year:'2023.05', org:'Stanford', lineage:'pref',
+ problem:'RLHF-PPO 太重——4 个模型、显存爆炸、超参难调。能不能把这套流程"化简"？',
+ idea:'数学家证明了一个漂亮结论：PPO 优化的那个目标函数存在一个"闭式解"，可以直接写成一个关于"chosen/rejected 概率"的简单分类损失。也就是说——不用单独训 RM、不用采样、不用 PPO，直接在偏好对上做梯度下降，就等价于"隐式地"完成了 RLHF。',
+ analogy:'RLHF 像先雇个评委打分再让演员讨好评委；DPO 发现——其实不用请评委，直接告诉演员"这个表现该加分，那个该减分"就行，一步到位。',
+ formula:'\\mathcal{L}_{DPO}=-\\log\\sigma\\Big(\\beta\\big[(\\log\\pi_\\theta(y_c|x){-}\\log\\pi_{ref}(y_c|x))-(\\log\\pi_\\theta(y_r|x){-}\\log\\pi_{ref}(y_r|x))\\big]\\Big)',
+ code:`ref = freeze(copy(model))          # 冻结的参考模型，只用来当锚点
+
+for step in steps:
+    q, chosen, rejected = pairs[step % len(pairs)]
+    lp_c, lp_r = logp(model, q, chosen), logp(model, q, rejected)
+    with no_grad():
+        lpref_c, lpref_r = logp(ref, q, chosen), logp(ref, q, rejected)
+    logits = beta * ((lp_c - lpref_c) - (lp_r - lpref_r))
+    loss = -log_sigmoid(logits)     # chosen 比 rejected "进步更多" 就降低loss
+    loss.backward(); opt.step()`,
+ dataFormat:'{"prompt":"怎么泡好咖啡？",\n "chosen":"用现磨豆，92℃水冲30秒。",\n "rejected":"随便冲冲就行了。"}',
+ limitation:'虽然免了 RM 和采样，但还是要同时装载"训练中的模型"和"冻结的 ref 模型"——<b>显存翻倍</b>；而且完全依赖偏好对质量，容易在偏好对上过拟合。',
+ next:['ipo','kto','orpo','simpo','rlaif','cai']},
+
+{id:'ipo', kind:'method', num:'04', name:'IPO', full:'Identity Preference Optimization',
+ year:'2023.10', org:'DeepMind (Azar et al.)', lineage:'pref',
+ problem:'DPO 用 sigmoid+log，当"chosen 比 rejected 好很多"时梯度会趋于饱和消失，模型反而容易在训练集上过拟合、走极端。',
+ idea:'把损失换成"平方误差"——不再无止境地拉大 chosen 和 rejected 的差距，而是设一个"刚刚好"的目标值 1/(2β)，差距到了这个值就不再继续推。',
+ analogy:'DPO 像无止境地让学生"越考越极端地追高分差"；IPO 说"差距到某个程度就够了，别用力过猛"。',
+ formula:'\\mathcal{L}_{IPO}=\\Big((\\Delta_c-\\Delta_r)-\\frac{1}{2\\beta}\\Big)^2,\\quad \\Delta_x=\\log\\pi_\\theta(x)-\\log\\pi_{ref}(x)',
+ code:`diff = (lp_c - lpref_c) - (lp_r - lpref_r)
+target = 1.0 / (2 * beta)
+loss = (diff - target) ** 2   # 平方损失：把差距"拉向"目标值，而非无限拉远`,
+ dataFormat:'与 DPO 完全相同：{prompt, chosen, rejected}',
+ limitation:'依然需要 ref 模型（显存没省）；对超参 β 仍然敏感。',
+ next:[], leafNote:'IPO 解决了"过拟合"，但"要不要 ref 模型"这个显存问题，交给了 ORPO / SimPO 继续攻克 →'},
+
+{id:'kto', kind:'method', num:'05', name:'KTO', full:'Kahneman-Tversky Optimization',
+ year:'2024.02', org:'Ethayarajh et al.', lineage:'pref',
+ problem:'收集"成对偏好"（每题都要两个候选，还要人工排序）成本很高。很多真实场景里数据本来就是零散的"好评/差评"，凑不成整整齐齐的对。',
+ idea:'借用诺贝尔奖得主 Kahneman & Tversky 的"前景理论"（人对损失比收益更敏感），把损失改写成：每条数据只需要"单独一个回答 + 好/坏标签"，不需要凑对。',
+ analogy:'DPO 像"AB 两杯咖啡哪杯更好喝"；KTO 像"这杯咖啡好喝还是难喝"——单独评价，不用对比。',
+ formula:'\\text{好样本:}\\ \\mathcal{L}=1-\\sigma(\\beta(\\Delta-z_0))\\\\[4pt]\\text{坏样本:}\\ \\mathcal{L}=1-\\sigma(-\\beta(\\Delta-z_0))\\\\[4pt]\\Delta=\\log\\pi_\\theta-\\log\\pi_{ref},\\ z_0=\\text{batch 内 }\\Delta\\text{ 均值}',
+ code:`delta = logp(model, q, ans) - logp(ref, q, ans)
+if label == "好":
+    loss = 1 - sigmoid(beta * (delta - z0))
+else:
+    loss = 1 - sigmoid(-beta * (delta - z0))`,
+ dataFormat:'{"prompt":"我有点累怎么办？",\n "completion":"先休息一下，喝点水深呼吸。",\n "label": true}',
+ limitation:'单点信号比成对信号"更稀疏"（信息量更少），需要更多数据、更细的超参才能达到 DPO 的效果。',
+ next:[], leafNote:'适合"数据本来就零散"的场景，用数据收集成本换效果——DPO 家族的另一个岔路 →'},
+
+{id:'orpo', kind:'method', num:'06', name:'ORPO', full:'Odds Ratio Preference Optimization',
+ year:'2024.03', org:'Hong et al.', lineage:'pref',
+ problem:'DPO/IPO/KTO 都还需要额外装载一个<b>冻结的 ref 模型</b>，显存开销大、代码也更复杂。能不能只用一个模型就搞定？',
+ idea:'把"偏好对比"直接焊接在 SFT 损失上——用 odds ratio（几率比）衡量 chosen 比 rejected"胜出的赔率高多少"，作为附加惩罚项加到普通交叉熵损失里。一个模型、一次前向，既模仿 chosen、又拉开和 rejected 的差距。',
+ analogy:'不用再请一个"旧版自己"当参照物，直接在做题（SFT）的同时"顺手"记一下"这个答案的赔率比另一个高多少"。',
+ formula:'\\mathcal{L}=\\mathcal{L}_{SFT}(chosen)+\\lambda\\cdot\\big(-\\log\\sigma(\\log\\text{odds}(c)-\\log\\text{odds}(r))\\big)',
+ code:`sft_loss = -logp(model, q, chosen) / len(chosen)      # 正常模仿 chosen
+odds_c = log_odds(model, q, chosen)
+odds_r = log_odds(model, q, rejected)
+odds_loss = -log_sigmoid(odds_c - odds_r) * lambda_
+loss = sft_loss + odds_loss           # 单模型、无 ref`,
+ dataFormat:'与 DPO 相同：{prompt, chosen, rejected}',
+ limitation:'效果通常略逊于有 ref 模型的 DPO；对长度和超参更敏感。',
+ next:[], leafNote:'省掉了 ref 模型的显存，但代价是精度打了点折扣——SimPO 尝试同时保住精度 →'},
+
+{id:'simpo', kind:'method', num:'07', name:'SimPO', full:'Simple Preference Optimization',
+ year:'2024.05', org:'Meng et al.', lineage:'pref',
+ problem:'DPO 需要额外的 ref 模型（显存翻倍），而且被发现有个"偷懒"bug——用 logP 求和会让模型学会"偏爱更长的回答"来刷分（长度偏置）。',
+ idea:'两个动作一起做：①去掉 ref 模型（不再比较"训练前后差多少"，直接比较两个候选自身的平均概率）；②把 logP 从"求和"换成"取平均"（除以长度），消除长度偏置；③加一个固定的安全边际 γ。',
+ analogy:'不再纠结"这次答案比上次进步了多少"（需要旧版自己参照），改成直接比"这两个答案平均每个字有多自信"，而且要求"必须领先一大截才算数"（margin γ）。',
+ formula:'\\mathcal{L}_{SimPO}=-\\log\\sigma\\big(\\beta\\cdot(\\overline{\\log\\pi}_\\theta(y_c)-\\overline{\\log\\pi}_\\theta(y_r))-\\gamma\\big)',
+ code:`# 长度归一化：sum_logp / 长度
+_, mean_lp_c, _ = seq_logp_with_lengths(model, tok, prompt, chosen)
+_, mean_lp_r, _ = seq_logp_with_lengths(model, tok, prompt, rejected)
+logits = beta * (mean_lp_c - mean_lp_r) - gamma   # 无 ref，多一个安全边际
+loss = -log_sigmoid(logits)`,
+ dataFormat:'与 DPO 相同：{prompt, chosen, rejected}',
+ limitation:'无 ref 模型意味着完全依赖当前策略自身的相对差异做判断，更依赖超参（β、γ）调准；长度归一化本身也可能矫枉过正。',
+ next:[], leafNote:'2024 年开源社区里最常用的轻量偏好对齐配方——Llama-3/Qwen2 系都在用 DPO 系变体 →'},
+
+{id:'rlaif', kind:'patch', num:'08', name:'RLAIF', full:'RL from AI Feedback · 数据合成补丁',
+ year:'2022–2023', org:'Anthropic / Lee et al.', lineage:'pref',
+ problem:'上面所有偏好对齐方法都需要大量<b>人工标注的偏好对</b>——人工标注贵、慢，尤其是安全类样本（比如怎么拒绝危险请求），标注员本身也未必愿意/擅长标。',
+ idea:'用一个更强的模型（或一套确定性规则）当"AI 裁判"，代替人类打偏好标签，批量合成大量 (prompt, chosen, rejected) 数据，再喂给 DPO/PPO 训练。',
+ analogy:'请不起人类评委天天打分，那就雇一个更厉害的 AI 模型来当评委——虽然可能带点"偏心"（继承该 AI 自己的偏见），但成本骤降。',
+ formula:null,
+ code:`def judge(text):                    # AI/规则裁判打分
+    return 1.0 if (has_period(text) and 10 <= len(text) <= 80) else 0.0
+
+for q in prompts:
+    cands = sample_candidates(q)
+    scored = sorted(cands, key=judge, reverse=True)
+    chosen, rejected = scored[0], scored[-1]  # 自动产出偏好对
+# 之后正常喂给 DPO 内核训练`,
+ dataFormat:'{"prompt":"夸夸我的项目","chosen":"…(裁判选的)",\n "rejected":"…(裁判弃的)","judge":"gpt-4o"}',
+ limitation:'教师/裁判的偏见会原样传递给学生模型；裁判设计得不好，可能被"刷分套路"欺骗。',
+ next:[], leafNote:'这不是一个"新损失函数"，而是一个"怎么造数据"的补丁——插在任意偏好方法前面 →'},
+
+{id:'cai', kind:'patch', num:'09', name:'CAI', full:'Constitutional AI · 数据合成补丁',
+ year:'2022', org:'Anthropic', lineage:'pref',
+ problem:'光靠"AI 裁判打分"还不够——尤其是安全/价值观类问题，需要更透明、可解释的方式让模型知道"为什么这样回答不对"。',
+ idea:'给模型一份"宪法"（行为准则，比如"不得鼓励危险行为"），让模型自己对自己的初稿做批评（critique），再按批评意见修订（revise）。修订版再拿去做 SFT（或接着当偏好对里的 chosen）。',
+ analogy:'不是让别人来纠正你，而是给你一份行为准则，你自己对照准则检讨答案哪里不对，然后自己改。',
+ formula:null,
+ code:`constitution = "助手不得鼓励危险行为，必须给出安全替代"
+initial  = model.generate(unsafe_question)                      # 模型先给出初稿
+critique = model.generate(f"对照宪法批评这个回答: {initial}")     # 自我批评
+revised  = model.generate(f"根据批评修订: {critique}")            # 自我修订
+
+loss = -logp(model, unsafe_question, revised) / 20.0   # 把修订版当SFT标签学`,
+ dataFormat:'{"宪法":"…","prompt":"…","初稿":"…","critique":"…","revised":"…"}\n→ 用 (prompt, revised) 做 SFT',
+ limitation:'宪法/准则本身还是要人来设计，"什么算危险行为"依然需要人类价值观兜底；自我批评质量取决于模型本身能力上限。',
+ next:[], leafNote:'偏好对齐这条线到这里告一段落——它解决了"怎么说人话"，但没解决"怎么真正推理"，这个问题留给了另外两条线 →'},
+
+/* =========================== 主线 ② 自我提升/蒸馏 =========================== */
+
+{id:'rft', kind:'method', num:'10', name:'RFT', full:'Rejection sampling Fine-Tuning · 拒绝采样微调',
+ year:'2023–2024', org:'通用做法', lineage:'self',
+ problem:'偏好对齐这条线都需要"两个候选比较"，但对数学/代码这类有明确对错的任务，其实有更简单的信号——<b>答案对不对</b>，完全不需要人工比较。',
+ idea:'让模型自己对同一道题采样出好几个候选答案，用一个"验证器"（比如跑代码判断对错、比对标准答案）自动筛选出"答对了的那些"，把这些当成标准答案回去做 SFT。',
+ analogy:'让学生自己反复做同一道题，只把做对的那几次的解题过程收进"错题本"（其实是"对题本"）反复背。',
+ formula:null,
+ code:`for step in steps:
+    prompt, gold = questions[step % len(questions)]
+    answers = model.sample(prompt, group=8)          # 自己采8个候选
+    kept = [a for a in answers if verify(a, gold)]     # 只留答对的
+    for a in kept:
+        loss = -logp(model, prompt, a) / 5.0            # 把它当SFT标签学
+        loss.backward()
+    opt.step()`,
+ dataFormat:'输入: {"prompt":"3+4=?","gold":7}\n过滤后→SFT: {"prompt":"3+4=?","response":"…答案是7。"}',
+ limitation:'完全丢弃了"答错样本"里的信息（负样本没被利用）；模型会越训越"保守"，生成多样性逐渐下降，容易收窄到几个固定套路。',
+ next:['star']},
+
+{id:'star', kind:'method', num:'11', name:'STaR / ReST', full:'Self-Taught Reasoner · 多轮自举',
+ year:'2022 / 2023', org:'Zelikman / Gulcehre', lineage:'self',
+ problem:'RFT 只做<b>一轮</b>"采样+过滤+SFT"，提升有限——模型变强之后理应能采出更多/更好的正确样本，但 RFT 没把这种"越训越强"的效应利用起来。',
+ idea:'把 RFT 套上一个外循环（round）——每一轮结束后模型变强了一点，下一轮用这个更强的模型重新采样，过滤出更多正确样本，再继续训练，像自己给自己"迭代升级"。',
+ analogy:'期末考试不是只对一次答案，而是每做完一轮模拟卷就用现在的水平重新做一遍、挑出做对的部分巩固，一轮一轮把水平螺旋提升上去。',
+ formula:null,
+ code:`for round in range(rounds):
+    for step in steps_per_round:
+        answers = model.sample(prompt, group=8)   # 用"当前(更强)版本"采样
+        kept = [a for a in answers if verify(a, gold)]
+        sft_update(model, kept)                    # 用刚过滤的正确样本训练
+    acc = eval_accuracy(model)
+    print(f"Round {round} 结束，准确率={acc}")       # 观察准确率逐轮上升`,
+ dataFormat:'与 RFT 相同，但每轮重新采样和过滤，标签持续刷新',
+ limitation:'依然需要一个"可验证"或"可打分"的任务（数学、代码这类）；多样性下降的问题没解决，反而可能因为反复自举更严重（容易收敛到单一解题套路）。',
+ next:['spin','opd']},
+
+{id:'spin', kind:'method', num:'12', name:'SPIN', full:'Self-Play Fine-Tuning · 自博弈微调',
+ year:'2024.01', org:'Chen et al.', lineage:'self',
+ problem:'如果任务没有"可验证的对错"（比如闲聊、写作这类开放式任务），RFT/STaR 那套"用验证器过滤"就用不了了。<b>只有普通 SFT 数据时</b>，还能怎么继续提升？',
+ idea:'一个巧妙的自博弈：把"人类写的标准答案"当 chosen，把"模型自己上一轮生成的答案"当 rejected，直接套用 DPO 的损失函数训练。模型被逼着不断"分辨人类数据和自己旧输出有什么差距"，一轮轮迭代，分布逐渐逼近人类数据。',
+ analogy:'让模型和"上一版的自己"打擂台——裁判（DPO loss）告诉它"人类范文比你上一轮写的强"，逼它一点点缩小和范文的差距。免费造出了负样本，不用额外标注。',
+ formula:'\\text{复用 DPO 损失：}\\ ref=\\text{opponent(旧版自己)},\\ chosen=\\text{人类标注},\\ rejected=\\text{旧版模型生成}',
+ code:`for round in range(rounds):
+    opponent = freeze(copy(model))            # 本轮开始时的快照，当"旧自己"
+    pairs = []
+    for q, gold_answer in sft_data:
+        rejected = opponent.generate(q)        # 旧自己的生成 = 负样本
+        pairs.append((q, gold_answer, rejected))  # gold=chosen，旧自己=rejected
+
+    for q, chosen, rejected in pairs:
+        loss = dpo_loss(model, opponent, q, chosen, rejected)  # 复用DPO内核
+        loss.backward(); opt.step()`,
+ dataFormat:'只需原始 SFT 数据：{"prompt":"…","response":"gold标准答案"}\nrejected 自动生成',
+ limitation:'收敛的上限就是人类标注数据本身的质量和分布——标注数据有偏差，模型也会学到；不适合需要"超越人类水平"的任务（比如数学竞赛难题）。',
+ next:[], leafNote:'把 SFT 数据"白嫖"成了偏好数据，但天花板还是人类数据本身——想突破这个天花板，需要另一个更强的"教师" →'},
+
+{id:'opd', kind:'method', num:'13', name:'OPD', full:'On-Policy Distillation · 在线蒸馏',
+ year:'2025', org:'Qwen3 / Thinking Machines Lab', lineage:'self',
+ problem:'离线蒸馏（用教师模型生成的轨迹直接做 SFT）是 <b>off-policy</b> 的——学生是在"教师会怎么答"的数据上学，而不是在"自己真实会怎么答"的数据上学，学生自己常犯的错误教师数据里根本没覆盖到。而 RLVR 那条线虽然 on-policy，但奖励很稀疏（只有对/错一个数字），训练贵、慢。',
+ idea:'把 on-policy（学生自己采样、在自己真实会犯的错误上学）和蒸馏（有个更强教师提供稠密监督）结合起来——学生自己生成一条轨迹，教师对轨迹里<b>每一个 token</b>都打分，用这个逐 token 的密集信号更新学生，而不是像 RLVR 那样等到最后才给一个稀疏的 0/1 奖励。',
+ analogy:'RLVR 像老师只在考卷最后打一个"对/错"；离线蒸馏像发一份标准答案让你抄；OPD 像老师站在你身后，你自己做题（on-policy），每写一个字老师都实时小声提示"这个字选得好/不好"（逐token稠密反馈）——学习效率远高于前两者。',
+ formula:'\\text{逐token优势}\\approx\\log\\pi_{teacher}(o_t)-\\log\\pi_{student}(o_t)\\ \\text{（反向KL的采样估计）}\\\\[6pt]\\mathcal{L}=-\\sum_t sg(adv_t)\\cdot\\log\\pi_{student}(o_t)',
+ code:`for step in steps:
+    rollout = student.sample(prompt)                     # 学生自己采样(on-policy)
+    lp_student = student.token_logp(prompt, rollout)      # 学生每个token的logp
+    with no_grad():
+        lp_teacher = teacher.token_logp(prompt, rollout)  # 教师对同一段文本的logp
+    adv = (lp_teacher - lp_student).detach()               # 教师更喜欢的token→正优势
+    loss = -(adv * lp_student).sum()                       # 逐token加权的策略梯度
+    loss.backward(); opt.step()`,
+ dataFormat:'只需要 prompt 池 + 一个教师模型，不需要人工标注，也不需要 verifier',
+ limitation:'教师不是越强越好——教师和学生"思维风格"差太多反而学不进去；如果拿学生自己 RL 之前的旧版本当教师，会把已经练出来的 RL 能力"蒸没了"（蒸回退）。',
+ next:[], leafNote:'2026 年已是工业界小模型产线的标准第四原语（Qwen3/GLM-5/MiMo/DeepSeek-V4 同款）——闪购生产模型的 Qwen3.7→122B-A10B 蒸馏也是这条路线 →'},
+
+/* =========================== 主线 ③ 推理·可验证RL =========================== */
+
+{id:'rlvr', kind:'method', num:'14', name:'RLVR', full:'可验证奖励强化学习',
+ year:'2024.09 起 · o1 开创', org:'OpenAI / 通用', lineage:'rl',
+ problem:'偏好对齐能让模型"更讨人喜欢"，但学不会真正一步步推理——数学题、代码题这类任务，靠"背标准答案的风格"学不会，需要的是<b>探索出解题路径</b>的能力。',
+ idea:'最朴素的强化学习（REINFORCE + baseline）：让模型对同一道题采样若干候选答案，用程序自动判断每个候选对不对（比对数学答案、跑单元测试），对的给1分错的给0分，减去这一组的平均分当"基线"（baseline），用这个"相对优势"当权重加权更新生成概率。',
+ analogy:'让模型自己反复"蒙"答案，蒙对的那次以后更倾向用那种蒙法，蒙错的以后少用——是最原始的"试错学习"。',
+ formula:'\\mathcal{L}=-(r-baseline)\\cdot\\log\\pi_\\theta(y|x)',
+ code:`for step in steps:
+    samples = model.sample_group(prompt, group=4)     # 一次采样4个候选
+    rewards = [verify(s, gold) for s in samples]        # 程序自动判断对错(0/1)
+    baseline = mean(rewards)                             # 组内均值当基线
+    for s, r in zip(samples, rewards):
+        adv = r - baseline
+        loss = -adv * logp(model, prompt, s)              # 优势加权的策略梯度
+        loss.backward()
+    opt.step()`,
+ dataFormat:'{"prompt":"3+4=?","gold":7,"reward_fn":"答案==gold→1 else 0"}\n不需要人工标"该怎么写"，只要有标准答案能自动核对',
+ limitation:'baseline 太粗糙（只用组均值），方差大、训练不稳；完全没有 critic 帮忙估计价值，学习效率低。',
+ next:['grpo']},
+
+{id:'grpo', kind:'method', num:'15', name:'GRPO', full:'Group Relative Policy Optimization',
+ year:'2024 提出 / 2025.01 DeepSeek-R1 爆红', org:'DeepSeek', lineage:'rl',
+ problem:'PPO 需要额外训一个 critic（价值网络）估计"这个状态值多少分"，critic 本身就是另一个模型，训练难、占显存；RLVR 的"组均值baseline"又太粗糙。',
+ idea:'关键洞察——在可验证任务上其实不需要 critic 来估计"绝对价值"，因为奖励天生可比（0或1这类明确信号）。直接对同一题采一组（比如4或8个）候选，用组内均值和标准差做 z-score 归一化当"优势"，完全不需要训 critic；同时加 KL 项防止模型跑太远。',
+ analogy:'PPO 像雇一个"估价师"（critic）天天给每个候选打绝对分；GRPO 发现——只要几个候选放一起"battle royale"比个高低（z-score归一化），就知道该往哪调，估价师可以直接省掉。',
+ formula:'A_i=\\frac{r_i-\\mu}{\\sigma}\\ \\text{(组内z-score)}\\qquad \\mathcal{L}=-A_i\\cdot\\log\\pi_\\theta(y_i|x)+\\beta_{KL}\\cdot KL(\\pi_\\theta\\|\\pi_{ref})',
+ code:`for step in steps:
+    samples = model.sample_group(prompt, group=4)
+    rewards = [verify(s, gold) for s in samples]
+    mu, sigma = mean(rewards), std(rewards)
+    for s, r in zip(samples, rewards):
+        adv = (r - mu) / (sigma + 1e-6)          # 组内z-score，无需critic
+        lp_pol = logp(model, prompt, s)
+        lp_ref = logp(ref, prompt, s)              # 只用来算KL锚点，不参与打分
+        loss = -adv * lp_pol + beta_kl * (lp_pol - lp_ref) ** 2
+        loss.backward()
+    opt.step()`,
+ dataFormat:'{"prompt":"求 12×17 等于多少？","gold":"204","verifier":"sympy","group_size":8}',
+ limitation:'组大小（group size）敏感——太小统计量不稳，太大采样成本高；组内<b>全对/全错</b>时标准差趋近0，梯度直接消失（浪费这一步算力）；用sum_logp/长度归一化会让模型学会"偏爱短答案"（长度偏置）。',
+ next:['dr_grpo','rloo','reinforce_pp']},
+
+{id:'dr_grpo', kind:'method', num:'16', name:'Dr. GRPO', full:'GRPO Done Right',
+ year:'2025.03', org:'NUS / Sea AI Lab (Liu et al.)', lineage:'rl',
+ problem:'GRPO 里有两个不易察觉的隐藏偏置：①除以标准差σ做归一化，会让"几乎全对或全错"的组（方差很小）优势被异常放大；②用"平均log概率"训练会系统性地让模型<b>偏爱更短的回答</b>。',
+ idea:'论文作者证明这两处归一化其实是多余甚至有害的偏置，干脆去掉——优势直接用 r-mean（不除σ），更新时用 sum_logp（而不是mean_logp，不做长度归一化），数学上更接近无偏估计。',
+ analogy:'GRPO 像给成绩做了两次"美颜滤镜"（除标准差、按长度平均），Dr.GRPO 说"素颜更真实"，把两层滤镜都摘掉。',
+ formula:'A_i=r_i-\\mu\\ \\text{(不除}\\sigma\\text{)}\\qquad \\mathcal{L}=-A_i\\cdot\\sum_t\\log\\pi_\\theta(o_{i,t}|x)\\ \\text{(不做长度归一化)}',
+ code:`mu = mean(rewards)
+for s, r in zip(samples, rewards):
+    adv = r - mu                             # 不除标准差
+    sum_logp, _, _ = seq_logp_with_lengths(model, tok, prompt, s)
+    loss = -adv * sum_logp                    # 用sum而不是mean，不做长度归一
+    loss.backward()`,
+ dataFormat:'与 GRPO 完全相同',
+ limitation:'只是修正了这两处统计偏置，GRPO本身"组内全对/全错梯度消失"、"组大小敏感"这些问题依然没解决。',
+ next:[], leafNote:'GRPO 家族的第一批"打补丁"变体之一——同一批还有 RLOO、REINFORCE++ 从不同角度修 baseline →'},
+
+{id:'rloo', kind:'method', num:'17', name:'RLOO', full:'REINFORCE Leave-One-Out',
+ year:'2024', org:'Ahmadian et al.', lineage:'rl',
+ problem:'GRPO/RLVR 用"组的整体均值"当基线，但计算某一个样本的优势时，也把它自己算进了均值里，<b>不够精确</b>。',
+ idea:'对每个样本，baseline 改用"剩下其它 k-1 个样本的均值"（排除自己），这样对第 i 个样本更公平——它不会自己"污染"自己的参照系。数学上等价于把优势乘上一个 k/(k-1) 的修正系数。',
+ analogy:'评价一个学生考得好不好，不该把他自己的分数也算进"班级平均分"里再拿来比自己——应该只看"除他以外全班的平均分"才公平。',
+ formula:'baseline_i=\\frac{1}{k-1}\\sum_{j\\neq i}r_j,\\quad A_i=r_i-baseline_i',
+ code:`total_r, k = sum(rewards), len(rewards)
+for i, (s, r) in enumerate(zip(samples, rewards)):
+    baseline_i = (total_r - r) / (k - 1)    # 排除自己的leave-one-out均值
+    adv = r - baseline_i
+    loss = -adv * logp(model, prompt, s)
+    loss.backward()`,
+ dataFormat:'与 GRPO 相同',
+ limitation:'计算量比组均值略高（需要k次不同的baseline）；本质仍是"组内相对比较"，组全对/全错时依然没有梯度信号。',
+ next:[], leafNote:'比组均值更精细的 baseline，但没解决 GRPO 家族共同的"全对全错无信号"问题 →'},
+
+{id:'reinforce_pp', kind:'method', num:'18', name:'REINFORCE++',
+ full:'global baseline + advantage 标准化', year:'2025.01', org:'OpenRLHF 社区 (Hu et al.)', lineage:'rl',
+ problem:'GRPO/RLOO 的 baseline 都只在"当前这一组"内部计算，组与组之间没有记忆——如果这一组题目恰好比较简单/困难，基线会跟着大幅波动，<b>训练不够稳</b>。',
+ idea:'维护一个跨越所有历史 batch 的"全局基线"（用滑动平均更新），先用这个全局基线减掉奖励，再在当前 batch 内部做一次 z-score 标准化，双重稳定；同时对优势值做截断（clip）防止某一步更新过猛。',
+ analogy:'GRPO/RLOO 只看"这一次小考"内部排名；REINFORCE++ 还额外参考"这学期以来的平均水平"（全局基线）做校准，不会因为某次小考特别难/简单而失真。',
+ formula:'b_{global}\\leftarrow\\alpha\\,b_{global}+(1-\\alpha)\\bar r\\quad(\\text{滑动平均})\\qquad A_i=\\text{zscore}(r_i-b_{global})',
+ code:`global_b = alpha * global_b + (1 - alpha) * mean(rewards)  # 滑动更新全局基线
+adv0 = [r - global_b for r in rewards]                        # 先减全局基线
+adv = zscore(adv0)                                             # 再做batch内标准化
+for s, a in zip(samples, adv):
+    loss = -clip(a, -5, 5) * logp(model, prompt, s)
+    loss.backward()`,
+ dataFormat:'与 GRPO 相同，额外维护一个跨batch的全局标量',
+ limitation:'全局基线的滑动平均系数α需要调；本质仍是GRPO家族的一种baseline改良，没有解决<b>长CoT下的不稳定性</b>——这是接下来 DAPO 要解决的问题。',
+ next:['dapo']},
+
+{id:'dapo', kind:'method', num:'19', name:'DAPO', full:'Decoupled clip & dynamic sAmpling PO',
+ year:'2025.03–04', org:'字节跳动 Seed', lineage:'rl',
+ problem:'上面几种 GRPO 变体主要在优化 baseline 的精细程度，但当 CoT（思维链）越来越长时，出现了两个新问题：①一组样本<b>全对或全错</b>时完全没有梯度信号，白白浪费算力；②GRPO 的对称裁剪会让"低概率但正确"的 token 很难被拉高，模型逐渐失去探索欲望（entropy collapse 的前兆）。',
+ idea:'两个工程加成：①<b>dynamic sampling</b>——检测到某组全对/全错就直接跳过重采，不浪费这一步；②<b>clip-higher</b>——把裁剪范围改成不对称的（上界比下界更宽松），让"小概率但奖励为正"的token有更大空间被拉高概率，缓解模型越训越"死板"。',
+ analogy:'dynamic sampling 像"这道题全班都会/都不会，这次小考直接作废重出一道"，不浪费课时；clip-higher 像"对难得冒头的好想法（低概率但正确的token），给它更大的加分空间，别一下子压回去"。',
+ formula:'\\text{全对/全错组直接跳过}\\qquad \\text{clip}(ratio,\\,1{-}\\epsilon_{low},\\,1{+}\\epsilon_{high}),\\ \\epsilon_{high}>\\epsilon_{low}',
+ code:`if all(r == 1.0 for r in rewards) or all(r == 0.0 for r in rewards):
+    continue                                  # (a) 动态采样：全对/全错直接跳过
+mu, sigma = mean(rewards), std(rewards)
+for s, r in zip(samples, rewards):
+    adv = (r - mu) / sigma
+    ratio = exp(logp(model,prompt,s) - logp(model,prompt,s).detach())
+    if adv >= 0:
+        clipped = clamp(ratio, max=1+eps_high) * adv    # (b) 上界更松
+    else:
+        clipped = clamp(ratio, min=1-eps_low) * adv
+    loss = -min(ratio*adv, clipped)
+    loss.backward()`,
+ dataFormat:'与 GRPO 相同，内部会丢弃全对/全错的组',
+ limitation:'长CoT稳定性只解决了一部分——比率的粒度依然是"每个token单独算"，在 rollout 被复用（off-policy小步更新）或 MoE 模型专家路由漂移时，单token比率依旧噪声很大。',
+ next:['lcpo','gspo','cispo']},
+
+{id:'lcpo', kind:'method', num:'20', name:'LCPO', full:'Length-Controlled Policy Optimization',
+ year:'2025.03', org:'CMU (Aggarwal & Welleck)', lineage:'rl',
+ problem:'上面这些 RL 方法只优化"对不对"，完全不管输出有多长——推理模型往往越训越啰嗦（CoT越写越长），推理成本（时间、token费用）跟着飙升。',
+ idea:'直接把"长度"塞进奖励函数里——奖励 = 正确性 - α×超出预算的长度惩罚。模型如果想拿高分，除了要答对，还必须学会"在预算内说完"。',
+ analogy:'不只是"做对题给分"，还要求"必须在规定字数内说完"，超字数扣分——逼着模型学会言简意赅。',
+ formula:'reward = correct - \\alpha\\cdot\\frac{\\max(0,\\,len-target)}{target}',
+ code:`def reward_of(text, gold, target_len=4, alpha=0.5):
+    correct = 1.0 if extract_number(text) == gold else 0.0
+    n = token_count(text)
+    penalty = alpha * max(0, n - target_len) / target_len   # 超预算按比例扣分
+    return correct - penalty
+# 之后正常套用GRPO/RLVR的优势加权更新流程`,
+ dataFormat:'{"prompt":"请用≤200 token计算12×17","gold":"204","max_len":200}',
+ limitation:'target_len 需要人工设定，任务难度不同、合理长度不同，一刀切的预算不一定科学；本质是"奖励工程"技巧，没触及比率/裁剪本身的问题。',
+ next:[], leafNote:'解决的是"长度失控"这个独立维度的问题，和比率粒度之争（GSPO/CISPO）是并行的两个方向 →'},
+
+{id:'gspo', kind:'method', num:'21', name:'GSPO', full:'Group Sequence Policy Optimization',
+ year:'2025.07', org:'Qwen 团队（阿里）', lineage:'rl',
+ problem:'DAPO 改良了裁剪范围，但比率（ratio）的计算粒度依然停留在"<b>每个token单独算</b>"——rollout 被复用多个训练步（off-policy小步更新）时噪声很大；在 MoE 模型上更严重：每次梯度更新后，同一输入激活的专家组合会漂移（实测约10%差异），token级比率会彻底失真、训练直接崩掉。',
+ idea:'把重要性比率的计算单位从"token"提升到"整条序列"——用序列长度做几何平均，再对<b>整条序列</b>做裁剪（而不是对每个token分别裁剪）。这样"奖励的单位"（整条回答对不对）和"优化的单位"（整条序列的比率）就对齐了。',
+ analogy:'DAPO裁剪像"一句话里每个字单独打分、单独审查"；GSPO则是"整句话一起打分、一起审查"——因为奖励本来就是针对整条回答给的，审查粒度也该匹配这个粒度，而不是拆到字里。',
+ formula:'s_i(\\theta)=\\Big(\\frac{\\pi_\\theta(y_i|x)}{\\pi_{old}(y_i|x)}\\Big)^{1/|y_i|}\\ \\text{(序列级、长度几何平均)}\\\\[8pt]\\mathcal{L}=-\\min\\big(s_i\\hat{A}_i,\\ \\text{clip}(s_i,1{-}\\epsilon,1{+}\\epsilon)\\hat{A}_i\\big)',
+ code:`old_lp, n_tok = snapshot_logp(model, prompt, sample)   # rollout时刻的序列logp快照
+
+for inner_epoch in range(2):                             # 复用同一批rollout训练2次
+    new_lp = logp(model, prompt, sample)
+    s = exp((new_lp - old_lp) / n_tok)                     # 序列级比率(长度几何平均)
+    s_clip = clamp(s, 1 - eps, 1 + eps)                     # 对整条序列裁剪，而非逐token
+    loss = -min(s * adv, s_clip * adv)
+    loss.backward(); opt.step()`,
+ dataFormat:'与 GRPO 相同，差异只在 rollout 复用时比率的计算方式',
+ limitation:'ε（裁剪范围）需要精调，原论文用到 3e-4 量级的极小值；序列级裁剪会一次性丢弃整条序列的梯度（比token级裁剪"损失"更多样本），但实测反而更稳定高效。',
+ next:[], leafNote:'Qwen3 全系 RL 的算法基石——同样问题，MiniMax-M1 团队给出了另一个答案 →'},
+
+{id:'cispo', kind:'method', num:'22', name:'CISPO', full:'Clipped IS-weight Policy Optimization',
+ year:'2025.06', org:'MiniMax (M1)', lineage:'rl',
+ problem:'同样是"DAPO裁剪范围改良后依然不够"，MiniMax团队发现了另一个具体症状——token级裁剪会把 <b>"However/Wait/Recheck"这类低概率的反思型token</b> 直接裁掉，而这些恰恰是长思维链里最关键的"转折点"，一旦被裁掉，后续训练步里它们就再也拿不到梯度了。',
+ idea:'不裁剪 token 本身的更新幅度，而是<b>只裁剪"重要性权重"这个标量</b>，且用 stop-gradient 处理（权重只用来加权，不参与反向传播）。这样所有token的梯度都能流过去，只是权重被限制在合理范围内，不会有token被"一刀切掉"。',
+ analogy:'DAPO/GRPO的裁剪像"发言超过2分钟直接掐断麦克风"（该token彻底没了后续影响力）；CISPO像"发言超标，但只是给这段话的「权重」打个折，麦克风不掐——大家还是能听到反思环节在说什么"。',
+ formula:'\\mathcal{L}_{CISPO}=-\\hat{A}_t\\cdot sg\\big(\\text{clip}(r_t,\\,1{-}\\epsilon_{low},\\,1{+}\\epsilon_{high})\\big)\\cdot\\log\\pi_\\theta(o_t)',
+ code:`old_lp = snapshot_token_logp(model, prompt, sample)    # 每个token的旧logp快照
+
+new_lp = token_logp(model, prompt, sample)               # 每个token的新logp(带梯度)
+ratio = exp(new_lp - old_lp)
+w = ratio.clamp(max=1 + eps_high).detach()                # 只裁权重，且stop-gradient
+loss = -(adv * w * new_lp).sum()                           # 每个token的梯度都保留
+loss.backward(); opt.step()`,
+ dataFormat:'与 GRPO 相同',
+ limitation:'没有传统PPO式的"信任域"约束，完全靠权重上界控制方差，上界调不好依然可能不稳；实测比DAPO快约2倍，但论文场景（MoE混合注意力456B模型）的结论未必能直接照搬到所有架构。',
+ next:['entropy'], leafNote:null},
+
+{id:'entropy', kind:'method', num:'23', name:'熵控 RL', full:'Entropy-aware RL · 探索坍塌的缓解',
+ year:'2025–2026', org:'学界活跃方向 (Cui et al. 等)', lineage:'rl',
+ problem:'不管是 GRPO、DAPO、GSPO 还是 CISPO，只要训练步数拉长，都会出现同一个通病——策略的<b>"熵"（输出多样性）会快速塌缩</b>：模型越训越"死板"，总用同一套固定套路作答，采样多样性消失，pass@k 不再随训练提升，继续训练收益很低甚至有害。',
+ idea:'主流缓解手段：①<b>entropy bonus</b>——直接在损失里加一项"鼓励熵"的正则，人为托住模型的探索欲望；②<b>温度调采样</b>——rollout 阶段用比1更高的温度采样，强制保留多样性；③clip-higher（DAPO已用）；④对"高熵分叉token"额外加权，这些token往往是推理路径真正的岔路口。',
+ analogy:'模型训练久了，就像学生刷题刷多了只会背标准解法，遇到变式题就懵——"熵"就是这个学生"还愿意尝试新解法"的意愿，熵控RL就是想办法让学生保持一点探索欲，别刷题刷成只会一种套路。',
+ formula:'\\mathcal{L}=\\mathcal{L}_{GRPO}-\\beta_{ent}\\cdot H(\\pi_\\theta),\\quad H(\\pi)=-\\sum_t\\pi(o_t)\\log\\pi(o_t)',
+ code:`for s, r in zip(samples, rewards):
+    logp_tok, entropy_tok = token_logp_and_entropy(model, prompt, s)
+    adv = (r - mu) / sigma
+    loss = -adv * logp_tok.sum()
+    loss = loss - beta_ent * entropy_tok.mean()  # 熵红利：托住探索欲望，防止塌缩
+    loss.backward()
+# 配合：rollout采样时温度调高(temperature>1)，进一步保留多样性`,
+ dataFormat:'与 GRPO 相同，损失多一项熵正则',
+ limitation:'β_ent（熵红利系数）太大会拖慢收敛、太小又不起作用，各家方法超参都很敏感；目前学界尚无统一理论框架来"精确"预测该给多少熵红利，仍是经验调参为主的活跃研究方向。',
+ next:[], leafNote:null, isLastRL:true},
+
+];
+</script>
+<script>
+// ============================================================================
+// 渲染引擎
+// ============================================================================
+const byId = id => NODES.find(n => n.id === id);
+const STORAGE_KEY = 'posttrain-explorer-resolved-v1';
+let resolvedSet = new Set();
+try {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  resolvedSet = new Set(saved);
+} catch(e) { resolvedSet = new Set(); }
+
+function saveProgress(){
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...resolvedSet])); } catch(e){}
+  const total = NODES.filter(n => n.kind === 'method').length;
+  document.getElementById('statCount').textContent = resolvedSet.size;
+  document.getElementById('progressFill').style.width = (resolvedSet.size / total * 100) + '%';
+}
+
+function escapeHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function pillsHtml(ids){
+  return ids.map(id => {
+    const n = byId(id);
+    return `<button class="next-pill" data-goto="${id}">${n.name}</button>`;
+  }).join('');
+}
+
+function renderMethodCard(node){
+  const wrap = document.createElement('div');
+  wrap.className = 'card-wrap';
+  wrap.id = 'section-' + node.id;
+
+  const isPatch = node.kind === 'patch';
+  const card = document.createElement('div');
+  card.className = 'card' + (isPatch ? ' patch' : '') + (resolvedSet.has(node.id) ? ' resolved' : '');
+  card.id = 'card-' + node.id;
+
+  let bodyHtml = '';
+  bodyHtml += `<div class="meta-row">
+      <span><b>${escapeHtml(node.year||'')}</b></span>
+      <span>${escapeHtml(node.org||'')}</span>
+    </div>
+    <div class="method-name">${escapeHtml(node.name)}</div>
+    <div class="method-full">${escapeHtml(node.full||'')}</div>`;
+
+  bodyHtml += `<div class="block">
+      <div class="block-label idea">✓ 核心解法</div>
+      <p>${node.idea}</p>
+    </div>`;
+
+  if(node.analogy){
+    bodyHtml += `<div class="block">
+      <div class="block-label analogy">◐ 人话类比</div>
+      <div class="analogy-box">${node.analogy}</div>
+    </div>`;
+  }
+
+  if(node.formula){
+    bodyHtml += `<div class="block">
+      <div class="block-label formula">∑ 关键公式</div>
+      <div class="formula-box katex-target" data-tex="${encodeURIComponent(node.formula)}"></div>
+    </div>`;
+  }
+
+  if(node.code){
+    const codeId = 'code-' + node.id;
+    bodyHtml += `<div class="block">
+      <button class="code-toggle" data-target="${codeId}">
+        <span>◆ 查看代码（简化自 posttrain_demo.py）</span>
+        <span class="chev">▸</span>
+      </button>
+      <div class="code-wrap" id="${codeId}">
+        <pre class="codeblock"><code class="language-python"></code></pre>
+      </div>
+    </div>`;
+  }
+
+  if(node.dataFormat){
+    bodyHtml += `<div class="block">
+      <div class="block-label data">▤ 训练数据长什么样</div>
+      <div class="data-box">${escapeHtml(node.dataFormat)}</div>
+    </div>`;
+  }
+
+  if(node.limitation){
+    bodyHtml += `<div class="block">
+      <div class="block-label limit">✕ 遗留问题</div>
+      <div class="limit-box"><p>${node.limitation}</p></div>
+    </div>`;
+  }
+
+  if(node.next && node.next.length){
+    bodyHtml += `<div class="next-strip">
+      <span class="nx-label">这个遗留问题，引出了 →</span>
+      <div class="next-pills">${pillsHtml(node.next)}</div>
+    </div>`;
+  } else if(node.leafNote){
+    bodyHtml += `<div class="leaf-note">${node.leafNote}</div>`;
+  } else if(node.isLastRL){
+    bodyHtml += `<div class="leaf-note">三条主线到这里都走完了 —— 往下看整体总结 ↓</div>`;
+  }
+
+  card.innerHTML = `
+    <div class="issue-top" data-toggle="${node.id}">
+      <div class="issue-num">${node.num}</div>
+      <div class="issue-toptext">
+        <div class="issue-status">${resolvedSet.has(node.id) ? 'RESOLVED' : 'OPEN ISSUE'}</div>
+        <div class="issue-problem"><b>问题：</b>${node.problem}</div>
+      </div>
+      <button class="reveal-btn">揭示解法 →</button>
+    </div>
+    <div class="issue-body"><div class="issue-body-inner">${bodyHtml}</div></div>
+  `;
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function renderForkCard(node){
+  const wrap = document.createElement('div');
+  wrap.id = 'section-' + node.id;
+  const c = document.createElement('div');
+  c.className = 'connector';
+  c.innerHTML = `
+    <h3>🔀 ${node.title}</h3>
+    <p>${node.body}</p>
+    <div class="branch-choices">
+      ${node.branches.map(b => `
+        <button class="branch-btn" data-goto="${b.to}">
+          <span class="bt-name">${b.name}</span>
+          <span class="bt-desc">${b.desc}</span>
+        </button>`).join('')}
+    </div>
+  `;
+  wrap.appendChild(c);
+  return wrap;
+}
+
+function renderLineageHead(lineage){
+  const meta = {
+    pref: {tag:'主线 ①', title:'偏好对齐 —— "哪个回答更好"', desc:'从 RLHF 的"雇评委打分"，到 DPO 把评委省掉，再到 ORPO/SimPO 把参考模型也省掉——这条线一直在问同一个问题："能不能去掉一个贵的东西？"'},
+    self: {tag:'主线 ②', title:'自我提升 / 蒸馏 —— "自己给自己当老师"', desc:'没有人工偏好对时，能不能靠"自己采样、自己验证"甚至"跟自己打擂台"继续变强？这条线专注于怎么低成本地造出训练信号。'},
+    rl:   {tag:'主线 ③', title:'推理 · 可验证 RL —— "真正学会推理，而不是背答案"', desc:'从最朴素的 REINFORCE 到 DeepSeek-R1 用的 GRPO，再到 2025 下半年的 GSPO/CISPO/熵控——这条线一直在问："怎么让模型自己发现推理路径？"'},
+  };
+  const m = meta[lineage];
+  const el = document.createElement('div');
+  el.className = 'lineage-head ' + lineage;
+  el.innerHTML = `<span class="tag">${m.tag}</span><h2>${m.title}</h2><p>${m.desc}</p>`;
+  return el;
+}
+
+function renderSummary(){
+  const el = document.createElement('div');
+  el.className = 'summary';
+  el.innerHTML = `
+    <h3>◆ 一句话总结演进逻辑</h3>
+    <p><b>对齐路线</b>总是在问：<b>"能不能去掉一个贵的东西？"</b> —— 去 RM → DPO，去采样 → DPO，去 ref → ORPO/SimPO。</p>
+    <p><b>推理路线</b>总是在问：<b>"怎么让模型自己发现推理路径，而不是背诵？"</b> —— 可验证奖励 → RL → 去 critic（GRPO）→ 修复长CoT稳定性（DAPO）→ 修复比率粒度（GSPO/CISPO）→ 修复探索坍塌（熵控）。</p>
+    <p><b>自我提升路线</b>总是在问：<b>"怎么用更少的人力造出训练信号？"</b> —— 验证器过滤（RFT/STaR）→ 自博弈（SPIN）→ 在线蒸馏（OPD）。</p>
+    <ul>
+      <li><b>2022–2023</b>：RLHF 确立范式 → DPO 把它化简成一行分类损失</li>
+      <li><b>2023–2024</b>：DPO 系变体百花齐放（IPO/KTO/ORPO/SimPO），同时 RFT/STaR 打开自提升思路</li>
+      <li><b>2024.09–2025.01</b>：o1 与 DeepSeek-R1 证明"大规模可验证RL"能涌现真正推理，GRPO 成为新基石</li>
+      <li><b>2025 H2</b>：GRPO 家族分裂出"比率粒度之争"（GSPO 序列级 vs CISPO 裁IS权重）与"熵坍塌控制"两条支线</li>
+      <li><b>2025–2026</b>：OPD 在线蒸馏成为工业界小模型产线的"第四原语"，与 SFT / 偏好对齐 / RLVR 并列</li>
+    </ul>
+    <p style="margin-top:18px;color:var(--ink-faint);font-size:13.5px;">
+      配套的可运行代码（23 种方法的最小 PyTorch 实现）见开源仓库
+      <a href="https://github.com/100apps/post_train" target="_blank" rel="noopener">100apps/post_train</a>。
+    </p>
+    <a href="#top" class="back-top">↑ 回到顶部，重新探索</a>
+  `;
+  return el;
+}
+
+// ---------------------------------------------------------------------------
+// 主渲染流程：trunk → fork → 三条主线(依 lineage 分组，保持 NODES 顺序)
+// ---------------------------------------------------------------------------
+function render(){
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+
+  // trunk: p0, sft
+  main.appendChild(renderMethodCard(byId('p0')));
+  main.appendChild(renderMethodCard(byId('sft')));
+  main.appendChild(renderForkCard(byId('fork1')));
+
+  ['pref','self','rl'].forEach(lineage => {
+    main.appendChild(renderLineageHead(lineage));
+    NODES.filter(n => n.lineage === lineage).forEach(n => {
+      main.appendChild(renderMethodCard(n));
+    });
+  });
+
+  main.appendChild(renderSummary());
+
+  // p0 是根问题，一直展开，不需要"揭示解法"交互
+  const p0card = document.getElementById('card-p0');
+  p0card.classList.add('resolved');
+  p0card.querySelector('.issue-status').textContent = '起点';
+  p0card.querySelector('.reveal-btn').style.display = 'none';
+  p0card.querySelector('.issue-top').removeAttribute('data-toggle');
+
+  renderKatex();
+  applyHighlighting();
+  bindInteractions();
+  buildMapNav();
+  saveProgress();
+}
+
+function renderKatex(){
+  document.querySelectorAll('.katex-target').forEach(el => {
+    const tex = decodeURIComponent(el.getAttribute('data-tex'));
+    try {
+      katex.render(tex, el, {throwOnError:false, displayMode:true});
+    } catch(e){ el.textContent = tex; }
+  });
+}
+
+function applyHighlighting(){
+  NODES.filter(n => n.code).forEach(n => {
+    const el = document.querySelector('#code-' + n.id + ' code');
+    if(el){
+      el.textContent = n.code;
+      hljs.highlightElement(el);
+    }
+  });
+}
+
+function toggleCard(id){
+  const card = document.getElementById('card-' + id);
+  const wasResolved = card.classList.contains('resolved');
+  card.classList.toggle('resolved');
+  card.querySelector('.issue-status').textContent = card.classList.contains('resolved') ? 'RESOLVED' : 'OPEN ISSUE';
+  if(!wasResolved){
+    resolvedSet.add(id);
+  }
+  saveProgress();
+  updateMapNav();
+}
+
+function bindInteractions(){
+  document.querySelectorAll('[data-toggle]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if(e.target.closest('.next-pill')) return;
+      toggleCard(el.getAttribute('data-toggle'));
+    });
+  });
+
+  document.querySelectorAll('.code-toggle').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const target = document.getElementById(btn.getAttribute('data-target'));
+      btn.classList.toggle('open');
+      target.classList.toggle('open');
+    });
+  });
+
+  document.querySelectorAll('[data-goto]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = el.getAttribute('data-goto');
+      goto(id);
+    });
+  });
+}
+
+function goto(id){
+  const card = document.getElementById('card-' + id);
+  if(card && !card.classList.contains('resolved')){
+    toggleCard(id);
+  }
+  const section = document.getElementById('section-' + id);
+  if(section){
+    section.scrollIntoView({behavior: (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto':'smooth'), block:'start'});
+  }
+  closeMobileMap();
+}
+
+// ---------------------------------------------------------------------------
+// 右侧地图导航 + scrollspy
+// ---------------------------------------------------------------------------
+const GROUP_LABELS = {pref:'① 偏好对齐', self:'② 自我提升/蒸馏', rl:'③ 推理·可验证RL'};
+
+function buildMapNav(){
+  const nav = document.getElementById('mapNav');
+  nav.innerHTML = '';
+
+  const trunkTitle = document.createElement('div');
+  trunkTitle.className = 'grp-title';
+  trunkTitle.textContent = '起点';
+  nav.appendChild(trunkTitle);
+  [['p0','起点问题'], ['sft','SFT']].forEach(([id,label]) => {
+    nav.appendChild(mapItem(id, label, false));
+  });
+
+  ['pref','self','rl'].forEach(lineage => {
+    const t = document.createElement('div');
+    t.className = 'grp-title';
+    t.textContent = GROUP_LABELS[lineage];
+    nav.appendChild(t);
+    NODES.filter(n => n.lineage === lineage).forEach(n => {
+      const isChild = n.num && parseInt(n.num) > 0 && ['ipo','kto','orpo','simpo','spin','opd','dr_grpo','rloo','reinforce_pp','lcpo','gspo','cispo'].includes(n.id);
+      nav.appendChild(mapItem(n.id, n.num + ' · ' + n.name, isChild));
+    });
+  });
+}
+
+function mapItem(id, label, isChild){
+  const div = document.createElement('div');
+  div.className = 'map-item' + (isChild ? ' child' : '') + (resolvedSet.has(id) ? ' resolved' : '');
+  div.id = 'mapitem-' + id;
+  div.innerHTML = `<span class="m-dot"></span><span>${label}</span>`;
+  div.addEventListener('click', () => goto(id));
+  return div;
+}
+
+function updateMapNav(){
+  NODES.forEach(n => {
+    if(n.kind !== 'method') return;
+    const el = document.getElementById('mapitem-' + n.id);
+    if(el) el.classList.toggle('resolved', resolvedSet.has(n.id));
+  });
+}
+
+let currentActiveId = null;
+function setupScrollspy(){
+  const sections = NODES.filter(n => n.kind === 'method').map(n => document.getElementById('section-' + n.id)).filter(Boolean);
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if(entry.isIntersecting){
+        const id = entry.target.id.replace('section-','');
+        if(currentActiveId && currentActiveId !== id){
+          const prevEl = document.getElementById('mapitem-' + currentActiveId);
+          if(prevEl) prevEl.classList.remove('active');
+          const prevCard = document.getElementById('card-' + currentActiveId);
+          if(prevCard) prevCard.classList.remove('current-view');
+        }
+        currentActiveId = id;
+        const el = document.getElementById('mapitem-' + id);
+        if(el) el.classList.add('active');
+        const cardEl = document.getElementById('card-' + id);
+        if(cardEl) cardEl.classList.add('current-view');
+      }
+    });
+  }, {rootMargin:'-15% 0px -70% 0px', threshold:0});
+  sections.forEach(s => observer.observe(s));
+}
+
+// ---------------------------------------------------------------------------
+// 移动端地图开关 + 顶部概览图跳转
+// ---------------------------------------------------------------------------
+function closeMobileMap(){
+  document.getElementById('mapNav').classList.remove('mobile-open');
+  document.getElementById('mapClose').classList.remove('show');
+}
+
+document.getElementById('mapToggle').addEventListener('click', () => {
+  const nav = document.getElementById('mapNav');
+  nav.classList.add('mobile-open');
+  document.getElementById('mapClose').classList.add('show');
+});
+document.getElementById('mapClose').addEventListener('click', closeMobileMap);
+
+document.querySelectorAll('.ov-branch').forEach(g => {
+  g.addEventListener('click', () => goto(g.getAttribute('data-goto')));
+});
+
+// ---------------------------------------------------------------------------
+// 初始化
+// ---------------------------------------------------------------------------
+render();
+setupScrollspy();
+document.body.id = 'top';
+</script>
+
+<div class="foot-note">
+  根据 <a href="https://github.com/100apps/post_train" target="_blank" rel="noopener">100apps/post_train</a> 仓库整理 ·
+  内容截至 2026.07 · 代码片段为教学简化版，完整可运行版本见仓库 posttrain_demo.py
+</div>
+
+</body>
+</html>
